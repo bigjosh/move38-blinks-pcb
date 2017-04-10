@@ -77,6 +77,27 @@ void commonActivate( uint8_t line ) {           // Also deactivates previous
 int main(void)
 {
     
+    DDRD |= _BV(3);
+    
+    while (1) {
+        
+        for(int i=0;i<10000;i++) {
+            PORTD |= _BV(3);
+            _delay_us(30);
+            PORTD &= ~_BV(3);
+            _delay_us(100);
+        }            
+
+        for(int i=0;i<10000;i++) {
+            PORTD |= _BV(3);
+            _delay_us(15);
+            PORTD &= ~_BV(3);
+            _delay_us(250);
+        }
+        
+        _delay_ms(1000);
+ 
+    }
     
     //DDRD |= _BV(3);     // BLUE
     
@@ -104,7 +125,8 @@ int main(void)
                 commonActivate(p);
                 
                 for( int delay=countdown;delay;delay--) {
-                    DDRD |= _BV(5);     // RED
+                    DDRD |= _BV(5);     // green
+                    
                     _delay_us(5);
                     DDRD &= ~_BV(5);
                     _delay_us(25);
