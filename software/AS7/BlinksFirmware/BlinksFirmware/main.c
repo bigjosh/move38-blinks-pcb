@@ -48,6 +48,12 @@
 
 #define PIXEL_COUNT 6
 
+// Here are the raw compare register values for each pixel
+// These are precomputed from brightness values because we read them often from inside an ISR
+// Note that for reg & green, 255 corresponds to OFF and 250 is about maximum prudent brightness. 
+volatile uint8_t rawValueR[PIXEL_COUNT];
+volatile uint8_t rawValueG[PIXEL_COUNT];
+volatile uint8_t rawValueB[PIXEL_COUNT];
 
 // RGB Sinks - We drive these low to light the selected color (note that BLUE has a charge pump on it)
 //This will eventually be driven by timers
@@ -66,12 +72,15 @@
 
 
 // This pin is used to sink the blue charge pump
-// We drive this HIGH to turn off blue, which otherwise could 
+// We drive this HIGH to turn off blue, which otherwise blue led could 
 // come on if the battery voltage is high enough to overcome the forward drop on the
-// blue LED + schottkey
+// blue LED + Schottky
+
 #define BLUE_SINK_PORT PORTE
 #define BLUE_SINK_DDE  DDRE
 #define BLUE_SINK_BIT  3
+
+
 
 #define BUTTON_PORT    PORTD
 #define BUTTON_PIN     PIND
@@ -102,12 +111,11 @@ void setupPixelPins(void) {
         SBI( PIXEL5_DDR , PIXEL5_BIT );
         SBI( PIXEL6_DDR , PIXEL6_BIT );
         
-        // Set the R,G,B cathode sinks to HIGH so no current flows (this will turn on pull-up)..
+        // Set the R,G,B cathode sinks to HIGH so no current flows (this will turn on pull-up until next step sets direction bit)..
         SBI( LED_R_PORT , LED_R_BIT );       // RED
         SBI( LED_G_PORT , LED_G_BIT );       // GREEN
         SBI( LED_B_PORT , LED_B_BIT );       // BLUE
-        
-        
+                
         // Set the cathode sinks to output (they are HIGH from step above)
         // TODO: These will eventually be driven by timers
         SBI( LED_R_DDR , LED_R_BIT );       // RED
@@ -132,7 +140,7 @@ void setupPixelPins(void) {
 
 void setupTimers(void) {
     
-    // First the main Timer0 to drive R & G. We also use the overflow to jump to the next multiplexed pixel 
+    // ** First the main Timer0 to drive R & G. We also use the overflow to jump to the next multiplexed pixel 
     // Lets start with a prescaller of 8, which gives us a ~80hz refresh rate on the full 6 leds which should look smooth
     // TODO: How does frequency and duty relate to power efficiency? We can always lower to and trade resolution for faster cycles
     
@@ -145,31 +153,56 @@ void setupTimers(void) {
         
     // Ok, here we go with obscure bit twiddling. There really should be a better way to do this...
     
-    //First turn everything off so no glitch during setup
+    // First turn everything off so no glitch during setup
     
     // Writing OCR0A=MAX will result in a constantly high or low output (depending on the
     // polarity of the output set by the COM0A[1:0] bits.)
     // So setting OCR to MAX will turn off the LED because the output pin will be constantly HIGH
     
-            
+    
+    // Timer0 (R,G)        
     OCR0A = 255;                            // Initial value for RED (off)
     OCR0B = 255;                            // Initial value for GREEN (off)
+    TCNT0 = 255;                            // This will overflow immediately and set the outputs to 1 so LEDs are off.
 
-    TCNT0= 255;                             // This will overflow immediately and set the outputs to 1 so LEDs are off. 
-    
-    TCCR0A = 
+    TCCR0A =
         _BV( WGM00 ) | _BV( WGM01 ) |       // Set mode=3 (0b11)
         _BV( COM0A1) |                      // Clear OC0A on Compare Match, set OC0A at BOTTOM, (non-inverting mode) (clearing turns LED on)
         _BV( COM0B1)                        // Clear OC0B on Compare Match, set OC0B at BOTTOM, (non-inverting mode)
-        ;
-        
+    ;
+           
+    TCCR0B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
+        _BV( CS00 );                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0
+    
+    
     TIMSK0 = _BV( TOIE0 );                  // The corresponding interrupt is executed if an overflow in Timer/Counter0 occurs
                                             // We will jump to next pixel here
 
-       
-    TCCR0B = 
-        _BV( CS01 );                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0
-        
+
+    // ** Next setup Timer2 for blue. This is different because for the charge pump. We have to drive the pin HIGH to charge
+    // the capacitor, then the LED lights on the LOW.
+    // So maybe the best way to handle this is to just always be charging except the very short times when we are ofF?
+    // Normally this means the LED will be on dimly that while time, but we can compensate by only turn on the BOOST enable
+    // pin when there is actually blue in that pixel right now, and maybe bump down the raw compare values to compensate for the
+    // the leakage brightness when the battery voltage is high enough to cause some? Should work!
+
+    
+    // Timer2 (B)                           // Charge pump is attached to OC2B
+    OCR2B = 255;                            // INtial value for BLUE (off)
+    TCNT2= 255;                             // This will overflow immediately and set the outputs to 1 so LEDs are off.
+    
+    TCCR2A = 
+        _BV( COM2B1) | _BV( COM2B0) |         // Set OC0A on Compare Match, clear OC0A at BOTTOM (inverting mode) (clearing turns off pump and on LED)
+        _BV( WGM01) | _BV( WGM00)           // Mode 3 - Fast PWM TOP=0xFF
+    ;
+    
+    TCCR2B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
+        _BV(CS01);                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0
+    
+    
+    // TODO: Maybe use Timer2 to drive the ISR since it has Count To Top mode available. We could reset Timer0 from there.
+
+    
            
 }
 
@@ -178,6 +211,7 @@ void setupTimers(void) {
 void commonActivate( uint8_t line ) {         
     
     // TODO: These could probably be compressed with some bit hacking
+    // TODO: Check if we really need dedicated two sides on IR LEDs and if not, use a full PORTC bitwalk to get rid of all this
     
     switch (line) {
         
@@ -250,16 +284,27 @@ volatile uint8_t currentPixel;  // Which pixel is currently lit?
 ISR(TIMER0_OVF_vect)
 {
     commonDeactivate( currentPixel );
+
+    SBI( BLUE_SINK_PORT , BLUE_SINK_BIT);       // Faster to just blindly disable without even checking if it is currently on
     
-    currentPixel++;
+    currentPixel++;                             // Scan across all 6 pixels in turn
     
     if (currentPixel==PIXEL_COUNT) {
         currentPixel=0;
     }
     
+    if (rawValueB[currentPixel] != 255 ) {
+        CBI( BLUE_SINK_PORT , BLUE_SINK_BIT );      // If the blue LED is on at all, then activate the boost. This might cuase the blue to come on slightly 
+                                                    // if the battery voltage is high due to leakage, but that is ok because blue will be on anyway         
+                                                    // We CBI here because this pin is a SINK so negative is active.                                            
+    }
+/*    
+    OCR0A = rawValueR[currentPixel];
+    OCR0B = rawValueG[currentPixel];
+    OCR2B = rawValueB[currentPixel];
+  */  
     commonActivate(currentPixel);
-    
-    // TODO: Probably a bit-wise more efficient way to do this without a compare?  Only happens a few thousand time a second, so not *that* creitical... but still
+    // TODO: Probably a bit-wise more efficient way to do all this without a compare?  Only happens a few thousand times a second, so not *that* creitical... but still
     
 }
 
@@ -271,128 +316,81 @@ ISR(TIMER0_OVF_vect)
 
 int main(void)
 {
-    
-    
+      
     setupPixelPins();
     
-    setupTimers();
-    
-    commonActivate(1);
-    
-    OCR0A = 254;
-    
-    sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
-    
-    while (1) {
-        
-        for( int b=200; b<256; b++ ) {
-            
-            OCR0A = b;
-            
-            _delay_ms(10);
-            
-        }
-        
-        for( int b=200; b<256; b++ ) {
-            
-            OCR0B = b;
-            
-            _delay_ms(10);
-            
-        }
+    for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
+                
+        rawValueR[p]=255;
+        rawValueG[p]=255;
+        rawValueB[p]=255;
         
     }
     
     
- 
-    while (1) {    
+    setupTimers();
         
-        
-        
-        // RED
-        for(int i=1000;i;i--) {
-            for( uint8_t p=0; p<6; p++ ) {
+    sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
     
-                // RED
-                CBI( LED_R_PORT , LED_R_BIT );
-                commonActivate(p);
-                _delay_us(10);
-                commonDeactivate(p);
-                SBI( LED_R_PORT , LED_R_BIT );
-                _delay_us(100);
+    OCR0A = 250;
+    
+    while(1);
+    
+    while (1) {
+        
 
+        for( int b=200; b<256; b++ ) {
+            
+            for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
                 
-                }
+                rawValueB[p]=255;
+            }                
+            
+            _delay_ms(10);
+            
         }
         
+        _delay_ms(100);
         
-        // GREEN
-        for(int i=1000;i;i--) {
-            for( uint8_t p=0; p<6; p++ ) {
+        
+        for( int b=200; b<256; b++ ) {
+            
+            for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
                 
-                // GREEN
-                CBI( LED_G_PORT , LED_G_BIT );
-                commonActivate(p);
-                _delay_us(10);
-                commonDeactivate(p);
-                SBI( LED_G_PORT , LED_G_BIT );
-                _delay_us(100);
-
-                
+                rawValueR[p]=b;
             }
+            
+            _delay_ms(10);
+            
+        }            
+        
+        for( int b=200; b<256; b++ ) {
+            
+            for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
+                
+                rawValueB[p]=255;
+            }
+            
+            _delay_ms(10);
+            
         }
         
-       
         
-          
-        // BLUE
-        for(int i=100;i;i--) {
-            for( uint8_t p=0; p<6; p++ ) {                
-                
-                //  Charge cap first
-                
-
-
-                
-                commonActivate(p);           
-                
-        //        SBI( DDRE, 2);         // TODO: TESTING dedicated gate drive with this pin  - we need output or else it never goes low
-        //        SBI( PORTE, 2);         // TODO: TESTING dedicated gate drive with this pin
-
-                
-                SBI( LED_B_PORT , LED_B_BIT);               // Push on pump
-                CBI( BLUE_SINK_PORT , BLUE_SINK_BIT);       // Activate blue charge pump drain
-                
-            
-                _delay_us(1250);                             // Charge cap
-
-        //        CBI( PORTE, 2);         // TODO: TESTING dedicated gate drive with this pin
-
-                
-                SBI( BLUE_SINK_PORT , BLUE_SINK_BIT);       // Turn off pump drain
-                CBI( LED_B_PORT , LED_B_BIT );              // Suck on cap, drive bottom of blue lower than zero
-            
-                _delay_us(550);                             // Let cap drain
-                
-                commonDeactivate(6);
-                
-                _delay_us(1000);
-
-                }
-        }
+    }
+    
         
-        /*
-        set_sleep_mode( SLEEP_MODE_PWR_DOWN );
-        cli();
-        sleep_enable();
-        sleep_bod_disable();
-        sei();
-        sleep_cpu();
-        // wake up here 
-        sleep_disable();
-        */
+    /*
+    set_sleep_mode( SLEEP_MODE_PWR_DOWN );
+    cli();
+    sleep_enable();
+    sleep_bod_disable();
+    sei();
+    sleep_cpu();
+    // wake up here 
+    sleep_disable();
+    */
                 
-    }        
+  
                             
 }
 
