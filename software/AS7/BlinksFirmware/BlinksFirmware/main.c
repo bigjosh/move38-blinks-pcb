@@ -55,6 +55,14 @@ volatile uint8_t rawValueR[PIXEL_COUNT];
 volatile uint8_t rawValueG[PIXEL_COUNT];
 volatile uint8_t rawValueB[PIXEL_COUNT];
 
+
+// Here are the RGB for each pixel
+// 0=0ff, 255=full brightness
+// These values are only read and updated once per full display refresh to avoid tearing
+volatile uint8_t PixelR[PIXEL_COUNT];
+volatile uint8_t PixleG[PIXEL_COUNT];
+volatile uint8_t PixelB[PIXEL_COUNT];
+
 // RGB Sinks - We drive these low to light the selected color (note that BLUE has a charge pump on it)
 //This will eventually be driven by timers
 
@@ -128,6 +136,11 @@ void setupPixelPins(void) {
 }
 
 
+// CLOCK CALCULATIONS
+// Master clock is running at 1Mhz mostly to avoid FCC 15 issues. 
+// Timer0 running with a /8 prescaller, so one PWM cycle takes ~2ms and full refresh takes ~12ms giving 81Hz refrsh
+
+
 // Timers are hardwired to colors. No pin portable way to do this.
 // RED   = OC0A
 // GREEN = OC0B
@@ -172,7 +185,7 @@ void setupTimers(void) {
     ;
            
     TCCR0B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
-        _BV( CS00 );                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0
+        _BV( CS01 );                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0
     
     
     TIMSK0 = _BV( TOIE0 );                  // The corresponding interrupt is executed if an overflow in Timer/Counter0 occurs
@@ -188,11 +201,11 @@ void setupTimers(void) {
 
     
     // Timer2 (B)                           // Charge pump is attached to OC2B
-    OCR2B = 255;                            // INtial value for BLUE (off)
+    OCR2B = 255;                            // Initial value for BLUE (off)
     TCNT2= 255;                             // This will overflow immediately and set the outputs to 1 so LEDs are off.
     
     TCCR2A = 
-        _BV( COM2B1) | _BV( COM2B0) |         // Set OC0A on Compare Match, clear OC0A at BOTTOM (inverting mode) (clearing turns off pump and on LED)
+        _BV( COM2B1) |                        // Set OC0A on Compare Match, clear OC0A at BOTTOM (inverting mode) (clearing turns off pump and on LED)
         _BV( WGM01) | _BV( WGM00)           // Mode 3 - Fast PWM TOP=0xFF
     ;
     
@@ -202,11 +215,11 @@ void setupTimers(void) {
     
     // TODO: Maybe use Timer2 to drive the ISR since it has Count To Top mode available. We could reset Timer0 from there.
 
-    
+ 
            
 }
 
-// Note that LINE is 0-5 where the pixels are labeled p1-p6 on the board. 
+// Note that LINE is 0-5 whereas the pixels are labeled p1-p6 on the board. 
 
 void commonActivate( uint8_t line ) {         
     
@@ -275,9 +288,10 @@ void commonDeactivate( uint8_t line ) {           // Also deactivates previous
 
 }
 
+volatile
 
 volatile uint8_t currentPixel;  // Which pixel is currently lit?
-                                // Note that on startup ths is not tehcnically true, so we will unnessisarily but beignly deactivate pixel 0
+                                // Note that on startup ths is not technically true, so we will unnecessarily but benignly deactivate pixel 0
                                 
 // Called when Timer0 overflows, which happens at the end of the PWM cycle for each pixel. We advance to the next pixel.
 
@@ -298,11 +312,20 @@ ISR(TIMER0_OVF_vect)
                                                     // if the battery voltage is high due to leakage, but that is ok because blue will be on anyway         
                                                     // We CBI here because this pin is a SINK so negative is active.                                            
     }
-/*    
+  
+  
+    /* 
+    CBI( BLUE_SINK_PORT , BLUE_SINK_BIT );      // If the blue LED is on at all, then activate the boost. This might cuase the blue to come on slightly
+              
+    OCR0A = 255; //rawValueR[currentPixel];
+    OCR0B = 255; //rawValueG[currentPixel];
+    OCR2B = 150; //rawValueB[currentPixel];
+    */
+    
     OCR0A = rawValueR[currentPixel];
     OCR0B = rawValueG[currentPixel];
     OCR2B = rawValueB[currentPixel];
-  */  
+    
     commonActivate(currentPixel);
     // TODO: Probably a bit-wise more efficient way to do all this without a compare?  Only happens a few thousand times a second, so not *that* creitical... but still
     
@@ -332,9 +355,8 @@ int main(void)
         
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
     
-    OCR0A = 250;
     
-    while(1);
+    //while(1);
     
     while (1) {
         
@@ -343,7 +365,7 @@ int main(void)
             
             for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
                 
-                rawValueB[p]=255;
+                rawValueR[p]=b;
             }                
             
             _delay_ms(10);
@@ -357,23 +379,29 @@ int main(void)
             
             for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
                 
-                rawValueR[p]=b;
+                rawValueG[p]=b;
             }
             
             _delay_ms(10);
             
         }            
         
-        for( int b=200; b<256; b++ ) {
+        _delay_ms(100);
+        
+        
+        for( int b= 255-(56*2); b<256; b+=2 ) {
             
             for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
                 
-                rawValueB[p]=255;
+                rawValueB[p]=b;
             }
             
             _delay_ms(10);
             
         }
+        
+        _delay_ms(100);
+        
         
         
     }
