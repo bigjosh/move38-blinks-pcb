@@ -46,6 +46,9 @@
 #define PIXEL6_DDR  DDRD
 #define PIXEL6_BIT  1
 
+#define PIXEL_COUNT 6
+
+
 // RGB Sinks - We drive these low to light the selected color (note that BLUE has a charge pump on it)
 //This will eventually be driven by timers
 
@@ -68,11 +71,12 @@
 // blue LED + schottkey
 #define BLUE_SINK_PORT PORTE
 #define BLUE_SINK_DDE  DDRE
-#define BLUE_SINK_BIT  0
+#define BLUE_SINK_BIT  3
 
 #define BUTTON_PORT    PORTD
 #define BUTTON_PIN     PIND
 #define BUTTON_BIT     7
+
 
 #define BUTTON_DOWN() (TBI(BUTTON_PIN,BUTTON_BIT))           // PCINT23
 
@@ -80,6 +84,8 @@ ISR(PCINT2_vect)
 {
     //code
 }
+
+
 
 // Set all the pixel drive pins to output. 
 
@@ -111,6 +117,60 @@ void setupPixelPins(void) {
         SBI( BLUE_SINK_PORT , BLUE_SINK_BIT);   // Set the sink output high so blue LED will not come on
         SBI( BLUE_SINK_DDE  , BLUE_SINK_BIT);
         
+}
+
+
+// Timers are hardwired to colors. No pin portable way to do this.
+// RED   = OC0A
+// GREEN = OC0B
+// BLUE  = OC2B     
+// 
+// Blue is different
+// =================
+// Blue is not straight PWM since it is connected to a charge pump that charges on the + and activates LED on the 
+// TODO: Replace diode with MOSFET, which will require an additional pin for drive
+
+void setupTimers(void) {
+    
+    // First the main Timer0 to drive R & G. We also use the overflow to jump to the next multiplexed pixel 
+    // Lets start with a prescaller of 8, which gives us a ~80hz refresh rate on the full 6 leds which should look smooth
+    // TODO: How does frequency and duty relate to power efficiency? We can always lower to and trade resolution for faster cycles
+    
+    // We are running in FAST PWM mode where we continuously count up to TOP and then overflow. Not sure best TOP yet so try 255.
+    // The outputs are HIGH at the begining and LOW at the end. HIGH turns OFF the LED and LEDs should be low duty cycle,
+    // so this give us time to advance to the next pixel while LED is off to avoid visual glitching. 
+    
+    // Since we are using both outputs, I think we are stuck with Mode 3 = Fast PWM that does not let use use a different TOP
+    // Mode 3 - Fast PWM TOP=0xFF, Update OCRX at BOTTOM, TOV set at MAX
+        
+    // Ok, here we go with obscure bit twiddling. There really should be a better way to do this...
+    
+    //First turn everything off so no glitch during setup
+    
+    // Writing OCR0A=MAX will result in a constantly high or low output (depending on the
+    // polarity of the output set by the COM0A[1:0] bits.)
+    // So setting OCR to MAX will turn off the LED because the output pin will be constantly HIGH
+    
+            
+    OCR0A = 255;                            // Initial value for RED (off)
+    OCR0B = 255;                            // Initial value for GREEN (off)
+
+    TCNT0= 255;                             // This will overflow immediately and set the outputs to 1 so LEDs are off. 
+    
+    TCCR0A = 
+        _BV( WGM00 ) | _BV( WGM01 ) |       // Set mode=3 (0b11)
+        _BV( COM0A1) |                      // Clear OC0A on Compare Match, set OC0A at BOTTOM, (non-inverting mode) (clearing turns LED on)
+        _BV( COM0B1)                        // Clear OC0B on Compare Match, set OC0B at BOTTOM, (non-inverting mode)
+        ;
+        
+    TIMSK0 = _BV( TOIE0 );                  // The corresponding interrupt is executed if an overflow in Timer/Counter0 occurs
+                                            // We will jump to next pixel here
+
+       
+    TCCR0B = 
+        _BV( CS01 );                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0
+        
+           
 }
 
 // Note that LINE is 0-5 where the pixels are labeled p1-p6 on the board. 
@@ -182,6 +242,28 @@ void commonDeactivate( uint8_t line ) {           // Also deactivates previous
 }
 
 
+volatile uint8_t currentPixel;  // Which pixel is currently lit?
+                                // Note that on startup ths is not tehcnically true, so we will unnessisarily but beignly deactivate pixel 0
+                                
+// Called when Timer0 overflows, which happens at the end of the PWM cycle for each pixel. We advance to the next pixel.
+
+ISR(TIMER0_OVF_vect)
+{
+    commonDeactivate( currentPixel );
+    
+    currentPixel++;
+    
+    if (currentPixel==PIXEL_COUNT) {
+        currentPixel=0;
+    }
+    
+    commonActivate(currentPixel);
+    
+    // TODO: Probably a bit-wise more efficient way to do this without a compare?  Only happens a few thousand time a second, so not *that* creitical... but still
+    
+}
+
+
 
 // Timer1 for internal time keeping (mostly timing IR pulses) because it is 16 bit and its pins happen to fall on ports that are handy for other stuff
 // Timer0 A=Red, B=Green. Both happen to be on handy pins
@@ -193,12 +275,39 @@ int main(void)
     
     setupPixelPins();
     
+    setupTimers();
+    
+    commonActivate(1);
+    
+    OCR0A = 254;
+    
+    sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
+    
+    while (1) {
+        
+        for( int b=200; b<256; b++ ) {
+            
+            OCR0A = b;
+            
+            _delay_ms(10);
+            
+        }
+        
+        for( int b=200; b<256; b++ ) {
+            
+            OCR0B = b;
+            
+            _delay_ms(10);
+            
+        }
+        
+    }
     
     
  
     while (1) {    
         
-        /*
+        
         
         // RED
         for(int i=1000;i;i--) {
@@ -233,7 +342,7 @@ int main(void)
             }
         }
         
-        */      
+       
         
           
         // BLUE
@@ -247,8 +356,8 @@ int main(void)
                 
                 commonActivate(p);           
                 
-                SBI( DDRE, 2);         // TODO: TESTING dedicated gate drive with this pin  - we need output or else it never goes low
-                SBI( PORTE, 2);         // TODO: TESTING dedicated gate drive with this pin
+        //        SBI( DDRE, 2);         // TODO: TESTING dedicated gate drive with this pin  - we need output or else it never goes low
+        //        SBI( PORTE, 2);         // TODO: TESTING dedicated gate drive with this pin
 
                 
                 SBI( LED_B_PORT , LED_B_BIT);               // Push on pump
@@ -257,7 +366,7 @@ int main(void)
             
                 _delay_us(1250);                             // Charge cap
 
-                CBI( PORTE, 2);         // TODO: TESTING dedicated gate drive with this pin
+        //        CBI( PORTE, 2);         // TODO: TESTING dedicated gate drive with this pin
 
                 
                 SBI( BLUE_SINK_PORT , BLUE_SINK_BIT);       // Turn off pump drain
