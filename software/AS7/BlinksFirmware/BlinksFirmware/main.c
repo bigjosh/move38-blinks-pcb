@@ -343,7 +343,8 @@ ISR(TIMER0_OVF_vect)
     }
     
     if (rawValueB[currentPixel] != 255 ) {
-        CBI( BLUE_SINK_PORT , BLUE_SINK_BIT );      // If the blue LED is on at all, then activate the boost. This might cuase the blue to come on slightly 
+        CBI( BLUE_SINK_PORT , BLUE_SINK_BIT );      // If the blue LED is on at all, then activate the boost. This will start charging the boost capactior. 
+                                                    // This might cause the blue to come on slightly if the boost capacitor is full
                                                     // if the battery voltage is high due to leakage, but that is ok because blue will be on anyway         
                                                     // We CBI here because this pin is a SINK so negative is active.                                            
     }
@@ -444,6 +445,28 @@ void setRGB( uint8_t r, uint8_t g, uint8_t b ) {
     
 }
 
+// Use ADC6 (pin 19) for an analog input- mostly for dev work now
+
+
+uint8_t analogRead(void) {
+    ADMUX = 
+        _BV(REFS0)   |                  // Refernce AVcc voltage
+        _BV( ADLAR ) |                  // Left adjust result so only one 8 bit read of the high register needed
+        _BV( MUX2 )  | _BV( MUX1 )      // Select ADC6
+     ;
+       
+     ADCSRA = 
+        _BV( ADEN )  |                  // Enable ADC
+        _BV( ADSC )                     // Start a conversion
+     ;
+     
+     
+      while (TBI(ADCSRA,ADSC)) ;       // Wait for conversion to complete
+      
+      return( ADCH );
+    
+}
+
 
 // Timer1 for internal time keeping (mostly timing IR pulses) because it is 16 bit and its pins happen to fall on ports that are handy for other stuff
 // Timer0 A=Red, B=Green. Both happen to be on handy pins
@@ -468,12 +491,18 @@ int main(void)
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
     
     
-    //while(1);
+    while(1) {
+        
+        setRGB( 0 , 0 , analogRead() );
+        
+        _delay_ms(10);
+        
+    }
     
     while (1) {
         
 
-        for( int b=0; b<240; b+=3) {
+        for( int b=0; b<255; b+=3) {
                            
             setRGB( b , 0 , 0);
                 
@@ -483,7 +512,7 @@ int main(void)
         
         _delay_ms(100);
         
-        for( int b=0; b<240; b+=3 ) {
+        for( int b=0; b<255; b+=3 ) {
             
             setRGB( 0 , b , 0);
             
@@ -493,7 +522,7 @@ int main(void)
         
         _delay_ms(100);
         
-        for( int b=0; b<240; b+=3 ) {
+        for( int b=0; b<255; b+=1 ) {
             
             setRGB( 0 , 0 ,  b);
             
