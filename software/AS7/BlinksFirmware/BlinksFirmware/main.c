@@ -8,6 +8,8 @@
 #include <avr/io.h>
 #include <avr/sleep.h>
 #include <avr/interrupt.h>
+#include <avr/eeprom.h>
+#include <avr/pgmspace.h>           // PROGMEM to keep data in flash
 
 #define F_CPU 1000000           // Default fuses
 
@@ -26,25 +28,25 @@
 #define PIXEL1_DDR  DDRB
 #define PIXEL1_BIT  6
 
-#define PIXEL2_PORT PORTB
-#define PIXEL2_DDR  DDRB
-#define PIXEL2_BIT  7
+#define PIXEL2_PORT PORTD
+#define PIXEL2_DDR  DDRD
+#define PIXEL2_BIT  0
 
-#define PIXEL3_PORT PORTD
-#define PIXEL3_DDR  DDRD
-#define PIXEL3_BIT  0
+#define PIXEL3_PORT PORTB
+#define PIXEL3_DDR  DDRB
+#define PIXEL3_BIT  7
 
 #define PIXEL4_PORT PORTD
 #define PIXEL4_DDR  DDRD
-#define PIXEL4_BIT  4
+#define PIXEL4_BIT  1
 
 #define PIXEL5_PORT PORTD
 #define PIXEL5_DDR  DDRD
-#define PIXEL5_BIT  2
+#define PIXEL5_BIT  4
 
 #define PIXEL6_PORT PORTD
 #define PIXEL6_DDR  DDRD
-#define PIXEL6_BIT  1
+#define PIXEL6_BIT  2
 
 #define PIXEL_COUNT 6
 
@@ -54,14 +56,6 @@
 volatile uint8_t rawValueR[PIXEL_COUNT];
 volatile uint8_t rawValueG[PIXEL_COUNT];
 volatile uint8_t rawValueB[PIXEL_COUNT];
-
-
-// Here are the RGB for each pixel
-// 0=0ff, 255=full brightness
-// These values are only read and updated once per full display refresh to avoid tearing
-volatile uint8_t PixelR[PIXEL_COUNT];
-volatile uint8_t PixleG[PIXEL_COUNT];
-volatile uint8_t PixelB[PIXEL_COUNT];
 
 // RGB Sinks - We drive these low to light the selected color (note that BLUE has a charge pump on it)
 //This will eventually be driven by timers
@@ -80,7 +74,7 @@ volatile uint8_t PixelB[PIXEL_COUNT];
 
 
 // This pin is used to sink the blue charge pump
-// We drive this HIGH to turn off blue, which otherwise blue led could 
+// We drive this HIGH to turn off blue, otherwise blue led could 
 // come on if the battery voltage is high enough to overcome the forward drop on the
 // blue LED + Schottky
 
@@ -94,15 +88,31 @@ volatile uint8_t PixelB[PIXEL_COUNT];
 #define BUTTON_PIN     PIND
 #define BUTTON_BIT     7
 
+#define BUTTON_PCI     PCIE2
+#define BUTTON_ISR     PCINT2_vect
+#define BUTTON_MASK    PCMSK2
+#define BUTTON_PCINT   PCINT23
 
 #define BUTTON_DOWN() (TBI(BUTTON_PIN,BUTTON_BIT))           // PCINT23
 
-ISR(PCINT2_vect)
+#define BUTTON_DEBOUNCE_TICKS 10
+
+ISR(BUTTON_ISR)
 {
     //code
 }
 
 
+void setupButton(void) {
+    
+    // GPIO setup
+    SBI( BUTTON_PORT , BUTTON_BIT);     // Leave in input mode, enable pull-up
+    
+    // Pin change interrupt setup
+    SBI( BUTTON_MASK , BUTTON_PCINT);   // Enable pin in Pin Change Mask Register 
+    SBI( PCICR , BUTTON_PCI );          // Enable the pin group
+    
+}
 
 // Set all the pixel drive pins to output. 
 
@@ -134,6 +144,8 @@ void setupPixelPins(void) {
         SBI( BLUE_SINK_DDE  , BLUE_SINK_BIT);
         
 }
+
+
 
 
 // CLOCK CALCULATIONS
@@ -288,21 +300,44 @@ void commonDeactivate( uint8_t line ) {           // Also deactivates previous
 
 }
 
-volatile
+volatile uint8_t verticalRetraceFlag=0;     // Turns to 1 when we are about to start a new refresh cycle at pixel zero
+                                            // Once this turns to 1, you have about 2ms to load new values into the raw array   
+                                            // to have them displayed in the next frame.
+                                            // Only matters if you want to have consistent frames and avoid visual tearing
+                                            // which might not even matter for this application at 80hz
+                                            // TODO: Is this empirically necessary?
+                                   
 
-volatile uint8_t currentPixel;  // Which pixel is currently lit?
-                                // Note that on startup ths is not technically true, so we will unnecessarily but benignly deactivate pixel 0
+volatile uint8_t previousPixel;     // Which pixel was lit on last pass?
+                                    // Note that on startup this is not technically true, so we will unnecessarily but benignly deactivate pixel 0
                                 
 // Called when Timer0 overflows, which happens at the end of the PWM cycle for each pixel. We advance to the next pixel.
 
+// Non-intuitive sequencing!
+// Because the timer only latches the values in the OCR registers when at the moment this ISR fires, by the time we are running
+// it is already lateched the *previous* values and they are currently being used. That means that right now we need to...
+//
+// 1. Activate the common line for the values that were previously latched.
+// 2. Load the values into OCRs to be latched when this cycle completes.
+//
+// You'd think we could just offset the raw values by one, but that doesn't work because the boost enable must match 
+// the values currently being displayed. 
+//
+// Note that we have plenty of time to do stuff once the boost enable is updated for the
+// values for the currently displayed pixel (the last loaded OCR values), because we have arranged things so that LEDs
+// are always *off* for the 1st half of the cycle. 
+
+
 ISR(TIMER0_OVF_vect)
 {
-    commonDeactivate( currentPixel );
+    
+    commonDeactivate( previousPixel );
 
     SBI( BLUE_SINK_PORT , BLUE_SINK_BIT);       // Faster to just blindly disable without even checking if it is currently on
-    
-    currentPixel++;                             // Scan across all 6 pixels in turn
-    
+                                                // Remember, this is a SINK so setting HIGH disables it.
+
+    uint8_t currentPixel = previousPixel+1;
+        
     if (currentPixel==PIXEL_COUNT) {
         currentPixel=0;
     }
@@ -312,7 +347,25 @@ ISR(TIMER0_OVF_vect)
                                                     // if the battery voltage is high due to leakage, but that is ok because blue will be on anyway         
                                                     // We CBI here because this pin is a SINK so negative is active.                                            
     }
+    
+    commonActivate(currentPixel);
+    
+    // Ok, current pixel is now ready to display when the OCRs match the timer durring this pass.
+    
+    // Next we have to set up the OCR values that will get latched when this pass overflows...
+    
+    uint8_t nextPixel = currentPixel+1;    
   
+    if (nextPixel==PIXEL_COUNT) {
+        nextPixel=0;
+    }
+    
+    if (nextPixel==PIXEL_COUNT-1) {     // If we are now loading the the last pixel, then we start a new frame on the next pass.
+                                        // Note that this ISR can not be interrupted, so no risk of user updating RAW while we are reading them,
+                                        // that can only happen after we return.
+        
+        verticalRetraceFlag = 1;
+    }
   
     /* 
     CBI( BLUE_SINK_PORT , BLUE_SINK_BIT );      // If the blue LED is on at all, then activate the boost. This might cuase the blue to come on slightly
@@ -322,15 +375,74 @@ ISR(TIMER0_OVF_vect)
     OCR2B = 150; //rawValueB[currentPixel];
     */
     
-    OCR0A = rawValueR[currentPixel];
-    OCR0B = rawValueG[currentPixel];
-    OCR2B = rawValueB[currentPixel];
+    // Get ready for next pass
     
-    commonActivate(currentPixel);
-    // TODO: Probably a bit-wise more efficient way to do all this without a compare?  Only happens a few thousand times a second, so not *that* creitical... but still
+    // Remember that these values will not actually get loaded into the timer until it overflows
+    // after it has finished displaying the current values
+    
+    OCR0A = rawValueR[nextPixel];
+    OCR0B = rawValueG[nextPixel];
+    OCR2B = rawValueB[nextPixel];
+    
+    previousPixel = currentPixel;
+    
+    // TODO: Probably a bit-wise more efficient way to do all this incrementing without a compare/jmp?  Only a couple of cycles and only few thousand times a second, so why does it bother me so?
     
 }
 
+// Gamma table curtsey of adafruit...
+//https://learn.adafruit.com/led-tricks-gamma-correction/the-quick-fix
+// TODO: Compress this down, we probably only need like 4 bits of resoltuion. 
+
+const uint8_t PROGMEM gamma8[] = {
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,
+    1,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,
+    2,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,
+    5,  6,  6,  6,  6,  7,  7,  7,  7,  8,  8,  8,  9,  9,  9, 10,
+    10, 10, 11, 11, 11, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16,
+    17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 24, 24, 25,
+    25, 26, 27, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 35, 35, 36,
+    37, 38, 39, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 50,
+    51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 66, 67, 68,
+    69, 70, 72, 73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89,
+    90, 92, 93, 95, 96, 98, 99,101,102,104,105,107,109,110,112,114,
+    115,117,119,120,122,124,126,127,129,131,133,135,137,138,140,142,
+    144,146,148,150,152,154,156,158,160,162,164,167,169,171,173,175,
+    177,180,182,184,186,189,191,193,196,198,200,203,205,208,210,213,
+    215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255 };
+
+// Set a single pixel's RGB value
+// Normalized and balanced
+// 0=off, 255=full brightness
+// Note that there will likely be fewer than 256 actual visible values, but the mapping will be linear and smooth
+
+// TODO: Balance, normalize, power optimize, and gamma correct these functions
+// Need some exponential compression at the top here
+// Maybe look up tables to make all calculations be one step at the cost of memory?
+
+inline static void setPixelRGB( uint8_t p, uint8_t r, uint8_t g, uint8_t b ) { 
+    
+    // These are just guesstimates that seems to look ok. 
+    
+    rawValueR[p] = 255- (pgm_read_byte(&gamma8[r])/4);
+    rawValueG[p] = 255- (pgm_read_byte(&gamma8[g])/4);
+    rawValueB[p] = 255 -(pgm_read_byte(&gamma8[b])/4);
+            
+}
+
+// Set the color of all pixels to one value
+
+void setRGB( uint8_t r, uint8_t g, uint8_t b ) {
+
+    // TODO: Optimize to avoid recalculating transfer function for every pixel
+
+    for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
+        setPixelRGB( p , r , g , b );
+        
+    }
+    
+}
 
 
 // Timer1 for internal time keeping (mostly timing IR pulses) because it is 16 bit and its pins happen to fall on ports that are handy for other stuff
@@ -361,46 +473,57 @@ int main(void)
     while (1) {
         
 
-        for( int b=200; b<256; b++ ) {
-            
-            for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
+        for( int b=0; b<240; b+=3) {
+                           
+            setRGB( b , 0 , 0);
                 
-                rawValueR[p]=b;
+            _delay_ms(10);
+            
+        }
+        
+        _delay_ms(100);
+        
+        for( int b=0; b<240; b+=3 ) {
+            
+            setRGB( 0 , b , 0);
+            
+            _delay_ms(10);
+            
+        }
+        
+        _delay_ms(100);
+        
+        for( int b=0; b<240; b+=3 ) {
+            
+            setRGB( 0 , 0 ,  b);
+            
+            _delay_ms(10);
+            
+        }
+        
+        _delay_ms(100);
+        
+        
+        for( uint8_t i=0;i<20;i++) {                       // DO it 10 times
+            
+            for( uint8_t s=0; s<20; s++) {                 // step animation 10 frames per pixel 
+                
+                uint8_t b = s * ( 256/20) ;                             // (so we are just generating the brightness for pixel 0)
+                        
+                for( uint8_t p=0; p<PIXEL_COUNT;p++) {      // Set value each pixel
+                
+                    setPixelRGB( p , 0 , b ,  0);
+                    
+                    b += (256/PIXEL_COUNT) ;                          // everything just works naturally via overflow rollover)
+                    
+                }                    
+            
+                _delay_ms(10);
+                
             }                
             
-            _delay_ms(10);
-            
         }
         
-        _delay_ms(100);
-        
-        
-        for( int b=200; b<256; b++ ) {
-            
-            for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
-                
-                rawValueG[p]=b;
-            }
-            
-            _delay_ms(10);
-            
-        }            
-        
-        _delay_ms(100);
-        
-        
-        for( int b= 255-(56*2); b<256; b+=2 ) {
-            
-            for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
-                
-                rawValueB[p]=b;
-            }
-            
-            _delay_ms(10);
-            
-        }
-        
-        _delay_ms(100);
         
         
         
