@@ -10,6 +10,7 @@
 #include <avr/interrupt.h>
 #include <avr/eeprom.h>
 #include <avr/pgmspace.h>           // PROGMEM to keep data in flash
+#include <math.h>
 
 #define F_CPU 1000000           // Default fuses
 
@@ -93,13 +94,21 @@ volatile uint8_t rawValueB[PIXEL_COUNT];
 #define BUTTON_MASK    PCMSK2
 #define BUTTON_PCINT   PCINT23
 
-#define BUTTON_DOWN() (TBI(BUTTON_PIN,BUTTON_BIT))           // PCINT23
+#define BUTTON_DOWN() (!TBI(BUTTON_PIN,BUTTON_BIT))           // PCINT23 - pulled low when button pressed
 
 #define BUTTON_DEBOUNCE_TICKS 10
 
+// This is a hack to get an effect to return when someone pushes the button
+
+static volatile uint8_t effectReturnFlag=0;     
+
+// TODO: This is a hack, do proper debounce when we have a timer available. 
+
 ISR(BUTTON_ISR)
-{
-    //code
+{	
+	if (BUTTON_DOWN()) {
+        effectReturnFlag = 1; 
+	}
 }
 
 
@@ -151,6 +160,7 @@ void setupPixelPins(void) {
 // CLOCK CALCULATIONS
 // Master clock is running at 1Mhz mostly to avoid FCC 15 issues. 
 // Timer0 running with a /8 prescaller, so one PWM cycle takes ~2ms and full refresh takes ~12ms giving 81Hz refrsh
+// The large scale timer is based on an overflowing uint16_t, so that will trigger every 2ms * 65536 = ~2 minutes
 
 
 // Timers are hardwired to colors. No pin portable way to do this.
@@ -300,12 +310,78 @@ void commonDeactivate( uint8_t line ) {           // Also deactivates previous
 
 }
 
+uint8_t readVccX10(void) {              // Return Vcc x10 
+	
+    ADMUX = 
+        _BV(REFS0)  |                                  // Reference AVcc voltage
+        _BV( ADLAR ) |                                 // Left adjust result so only one 8 bit read of the high register needed
+         _BV( MUX3 ) | _BV( MUX2 )  | _BV( MUX1 )      // Measure internal 1.1V bandgap voltage
+     ;
+       
+     ADCSRA = 
+        _BV( ADEN )  |                  // Enable ADC
+        _BV( ADSC )                     // Start a conversion
+     ;
+     
+     
+      while (TBI(ADCSRA,ADSC)) ;       // Wait for conversion to complete
+      
+	  // TODO: We can save time waiting if we read whatever the result form the last conversion is and then blindly kick-off a new one...
+	  
+      return( 11 / ADCH  );
+    
+}
+
+
+
+volatile uint8_t vccAboveBlueFlag=0;        // Is the battery voltage higher than the blue LED forward voltage?
+                                            // If so, then we need a different straegy to dim since the LED
+											// will always be on Even when the pump is not pushing. 
+											// Instead we will do stright PWM on the SINK. 
+											// For now, there are only two modes to keep it simple.
+											// TODO: Take into account the brightness level and the Vcc and pick which is the most efficient dimming
+											// strategy cycle-by-cycle. 
+
+#define BLUE_LED_THRESHOLD_V 2.6
+
+void updateVccFlag(void) {                  // Set the flag based on ADC check of the battery voltage. Don't have to do more than once per minute.
+	vccAboveBlueFlag = (readVccX10() > BLUE_LED_THRESHOLD_V);	
+	vccAboveBlueFlag = 1;	
+}
+
+
 volatile uint8_t verticalRetraceFlag=0;     // Turns to 1 when we are about to start a new refresh cycle at pixel zero
                                             // Once this turns to 1, you have about 2ms to load new values into the raw array   
                                             // to have them displayed in the next frame.
                                             // Only matters if you want to have consistent frames and avoid visual tearing
                                             // which might not even matter for this application at 80hz
                                             // TODO: Is this empirically necessary?
+											
+// Tick() is called once pre frame (6 pixels), which is currently every 2ms*6 = 12ms = 80Hz											
+											
+void tick(void) {                           
+	
+	verticalRetraceFlag=1;                  // Signal that now is a good time to do an update
+	
+	static uint8_t shortCountdown = 0;      
+	
+	if (!shortCountdown) {                  // Triggers once every 256 frames = 256 * 12ms = 3 seconds. Depends on byte overflow for reset. 
+		
+		// Stuff here will get run every ~3 seconds
+		
+	    updateVccFlag(); 
+
+    	static uint8_t longCountdown = 0;      
+		
+		if (!longCountdown) {
+            
+			// Stuff here will get run every 13 minutes		
+			
+	    }
+	
+	}
+	
+}
                                    
 
 volatile uint8_t previousPixel;     // Which pixel was lit on last pass?
@@ -330,10 +406,12 @@ volatile uint8_t previousPixel;     // Which pixel was lit on last pass?
 
 ISR(TIMER0_OVF_vect)
 {
-    
+	    
+		
+		
     commonDeactivate( previousPixel );
 
-    SBI( BLUE_SINK_PORT , BLUE_SINK_BIT);       // Faster to just blindly disable without even checking if it is currently on
+    SBI( BLUE_SINK_PORT , BLUE_SINK_BIT);       // Faster to just blindly disable SINK without even checking if it is currently on
                                                 // Remember, this is a SINK so setting HIGH disables it.
 
     uint8_t currentPixel = previousPixel+1;
@@ -341,17 +419,43 @@ ISR(TIMER0_OVF_vect)
     if (currentPixel==PIXEL_COUNT) {
         currentPixel=0;
     }
-    
+	
+    // TODO: Probably a bit-wise more efficient way to do all this incrementing without a compare/jmp?  Only a couple of cycles and only few thousand times a second, so why does it bother me so?
+	//       Maybe walk a bit though the two PORT registers? Might require reordering, but we can compensate for that with a lookup on color aignment rather than constantly in this ISR
+	
+	    
     if (rawValueB[currentPixel] != 255 ) {
-        CBI( BLUE_SINK_PORT , BLUE_SINK_BIT );      // If the blue LED is on at all, then activate the boost. This will start charging the boost capactior. 
+        CBI( BLUE_SINK_PORT , BLUE_SINK_BIT );      // If the blue LED is on at all, then activate the boost. This will start charging the boost capacitor. 
                                                     // This might cause the blue to come on slightly if the boost capacitor is full
                                                     // if the battery voltage is high due to leakage, but that is ok because blue will be on anyway         
                                                     // We CBI here because this pin is a SINK so negative is active.                                            
     }
     
     commonActivate(currentPixel);
+	
     
-    // Ok, current pixel is now ready to display when the OCRs match the timer durring this pass.
+	// This part switches between high voltage mode where we drive the LED directly from Vcc for very breif pulses and
+	// low voltage mode where we PWM the charge pump. 
+	// TODO: This could be much finer to pick for each brightness level what the most efficient drive would be at the current Vcc
+	// TODO: THis is just a hack to get dimming working on BLUE. New rev will have better charge pump hardware to make this better. 
+	
+    if (1|| vccAboveBlueFlag) {
+        /// TODO: TESTING BLUE HIGH VOLTAGE
+        uint8_t d= 255-rawValueB[currentPixel];
+    
+        while (d--) {
+            _delay_us(1);
+        }
+    
+    
+        //_delay_us(200);
+    
+ 
+        SBI(BLUE_SINK_PORT,BLUE_SINK_BIT);      // TODO: TESTING BLUE HIGH VOLTAGE
+	}
+    
+     
+    // Ok, current pixel is now ready to display when the OCRs match the timer during this pass.
     
     // Next we have to set up the OCR values that will get latched when this pass overflows...
     
@@ -387,8 +491,8 @@ ISR(TIMER0_OVF_vect)
     
     previousPixel = currentPixel;
     
-    // TODO: Probably a bit-wise more efficient way to do all this incrementing without a compare/jmp?  Only a couple of cycles and only few thousand times a second, so why does it bother me so?
-    
+	//tick(); 
+	
 }
 
 // Gamma table curtsey of adafruit...
@@ -428,9 +532,68 @@ inline static void setPixelRGB( uint8_t p, uint8_t r, uint8_t g, uint8_t b ) {
     
     rawValueR[p] = 255- (pgm_read_byte(&gamma8[r])/4);
     rawValueG[p] = 255- (pgm_read_byte(&gamma8[g])/4);
-    rawValueB[p] = 255 -(pgm_read_byte(&gamma8[b])/4);
+    rawValueB[p] = 255 -(pgm_read_byte(&gamma8[b])/2);
             
 }
+
+
+void setPixelHSB( uint8_t p, uint8_t inHue, uint8_t inSaturation, uint8_t inBrightness ) {
+
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+
+    if (inSaturation == 0)
+    {
+        // achromatic (grey)
+        r =g = b= inBrightness;
+    }
+    else
+    {
+        unsigned int scaledHue = (inHue * 6);
+        unsigned int sector = scaledHue >> 8; // sector 0 to 5 around the color wheel
+        unsigned int offsetInSector = scaledHue - (sector << 8);  // position within the sector         
+        unsigned int p = (inBrightness * ( 255 - inSaturation )) >> 8;
+        unsigned int q = (inBrightness * ( 255 - ((inSaturation * offsetInSector) >> 8) )) >> 8;
+        unsigned int t = (inBrightness * ( 255 - ((inSaturation * ( 255 - offsetInSector )) >> 8) )) >> 8;
+
+        switch( sector ) {
+        case 0:
+            r = inBrightness;
+            g = t;
+            b = p;
+            break;
+        case 1:
+            r = q;
+            g = inBrightness;
+            b = p;
+            break;
+        case 2:
+            r = p;
+            g = inBrightness;
+            b = t;
+            break;
+        case 3:
+            r = p;
+            g = q;
+            b = inBrightness;
+            break;
+        case 4:
+            r = t;
+            g = p;
+            b = inBrightness;
+            break;
+        default:    // case 5:
+            r = inBrightness;
+            g = p;
+            b = q;
+            break;
+        }
+    }
+
+    setPixelRGB( p , r , g , b );
+}
+
 
 // Set the color of all pixels to one value
 
@@ -445,12 +608,36 @@ void setRGB( uint8_t r, uint8_t g, uint8_t b ) {
     
 }
 
+typedef struct {
+	uint8_t r;
+	uint8_t g;
+	uint8_t b;
+} rgbtype; 
+
+// Wow, this is an inefficient way to do this, but doesn't matter for now.
+// TODO: think of a better RGB representation. Maybe fit everything into 16 bits with reduced blue resolution? 
+
+void setRGBtype( const uint8_t p , const rgbtype rgbt ) { 
+	
+	setPixelRGB( p , rgbt.b , rgbt.g , rgbt.b  );
+	
+}
+
+void setPixelRGBtype( const uint8_t p , const rgbtype rgbt  ) { 
+	
+    for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
+    	setPixelRGBtype( p , rgbt );
+	}
+	
+}
+
+
 // Use ADC6 (pin 19) for an analog input- mostly for dev work now
 
 
 uint8_t analogRead(void) {
     ADMUX = 
-        _BV(REFS0)   |                  // Refernce AVcc voltage
+        _BV(REFS0)   |                  // Reference AVcc voltage
         _BV( ADLAR ) |                  // Left adjust result so only one 8 bit read of the high register needed
         _BV( MUX2 )  | _BV( MUX1 )      // Select ADC6
      ;
@@ -465,6 +652,345 @@ uint8_t analogRead(void) {
       
       return( ADCH );
     
+}
+
+
+void delayWithReturnFlag(uint8_t ms) {
+    
+    while (ms-- && !effectReturnFlag) {
+        _delay_ms(1);
+    }        
+    
+}    
+    
+
+
+void rainbowBreathingEffect(void) {
+
+    while (!effectReturnFlag) {
+        
+
+        for( int b=0; b<255 && !effectReturnFlag; b+=3) {
+                           
+            setRGB( b , 0 , 0);
+                
+            _delay_ms(10);
+            
+        }
+		
+        for( int b=255; b>0 && !effectReturnFlag ; b-=3) {
+                           
+            setRGB( b , 0 , 0);
+                
+            _delay_ms(10);
+            
+        }
+        
+        
+        delayWithReturnFlag(100);
+		
+	        
+        
+        for( int b=0; b<255 && !effectReturnFlag ; b+=3 ) {
+            
+            setRGB( 0 , b , 0);
+            
+            _delay_ms(10);
+            
+        }
+		
+        for( int b=255; b>0 && !effectReturnFlag; b-=3) {
+                           
+            setRGB( 0 , b , 0);
+                
+            _delay_ms(10);
+            
+        }
+		
+		
+        delayWithReturnFlag(100);
+        
+        
+        for( int b=0; b<255 && !effectReturnFlag; b+=3 ) {
+            
+            setRGB( 0 , 0 ,  b);
+            
+            _delay_ms(10);
+            
+        }
+		
+        for( int b=255; b>0 && !effectReturnFlag; b-=3) {
+                           
+            setRGB(  0 , 0 , b);
+                
+            _delay_ms(10);
+            
+        }
+				
+        delayWithReturnFlag(100);
+		
+	}
+	
+}
+
+
+void rainbowFadeEffect(void) {
+    
+
+    while (!effectReturnFlag) {
+    
+       
+        for( int h=0; h<255 && !effectReturnFlag; h++ ) {     // Fade hue steps
+            
+//            uint8_t h = (a + (( 256 * p)/PIXEL_COUNT)) & 255;            
+
+            for( uint8_t p=0; p<PIXEL_COUNT ;p++) {      // Set value each pixel
+
+                setPixelHSB( p ,  h , 255 , 200 );
+                
+            }                
+            
+            delayWithReturnFlag(50);
+            
+        
+        }
+        
+    }          
+   
+}    
+
+
+void RedSpinnerEffect(void) {
+	
+	while (!effectReturnFlag) {
+	
+        for( uint8_t i=0;i<20 && !effectReturnFlag ;i++) {                       // DO it 10 times per color
+            
+            for( uint8_t s=0; s<20 && !effectReturnFlag ; s++) {                 // step animation 10 frames per pixel 
+                
+                uint8_t b = s * ( 256/20) ;                // (so we are just generating the brightness for pixel 0)
+                        
+                for( uint8_t p=0; p<PIXEL_COUNT;p++) {      // Set value each pixel
+                
+                    setPixelRGB( p , b ,  0 , 0 );
+                    
+                    b += (256/PIXEL_COUNT) ;                          // everything just works naturally via overflow rollover)
+                    
+                }                    
+            
+                _delay_ms(10);
+                
+            }                
+	    }
+    }
+        
+}
+
+
+
+
+void rainbowSpinnerEffect(void) {
+    
+
+    while (!effectReturnFlag) {
+    
+       
+        for( int a=0; a<255 && !effectReturnFlag; a++ ) {     // Angle steps 
+
+            for( uint8_t p=0; p<PIXEL_COUNT ;p++) {      // Set value each pixel
+
+                uint8_t h = (a + (( 256 * p)/PIXEL_COUNT)) & 255;
+
+                setPixelHSB( p ,  h , 255 , 180 );
+                
+            }             
+            
+            _delay_ms(5);   
+        
+        }
+               
+    }          
+   
+}    
+
+#define PI 3.15152
+
+void blueWaveEffect(void) {
+    
+// Rotating blue wave effect
+
+  float rotatedAngle=0;             // Current rotated angle
+
+  const int waveSteps = 100;        // Number of steps to take when passing the wave acorss the board for each angle step. 
+
+  const int cycle_count = 10;      // Number of waves to cycle to get all the way round
+
+  while (!effectReturnFlag) {     
+
+    for( int w=0; w<waveSteps && !effectReturnFlag; w++) {     // Steps in each Wave cycle
+
+      // Imagine the wave is always going to left to right (across X values), wavelength is 2 units. The pixles are all 1 unit from the center.
+      
+      for( int p=0; p<PIXEL_COUNT; p++ ) {
+
+        // Represent the pixels in polar cooridinates at radius 1
+        // Rotate the pixel into position on the board, plus the addisional angle for the wave rotation
+
+        // Compute the x position of the pixel Relative to the incoming wave (it is coming left to right on the x axis)
+        // This x will be -1 to 1
+        
+        float x= sin( 
+          
+          2.0 * PI * (        
+          
+              (( (float) p ) /PIXEL_COUNT)          // The angle of the chip around the board - when CHIP_COUNT is 6, then this ends up being every 30 degrees
+                                    
+          )        
+
+          +rotatedAngle                        // add in the dynamic rotating angle
+
+        );
+
+        // Next compute the intensity of the wave at this X location (y doesn't matter since this is a planar wavefront)
+        
+        uint8_t b=  (
+          
+          -1.0 * cos( 
+            
+              ( 
+                 2* PI *     // flip the COS so we start a -1 rather than 1 (we will later adjust up 1 so we start a 0 and peak at 2)
+
+                  ( ((float) w )/ waveSteps )       // This is the actual moving wave value at x=0
+
+              ) +x 
+
+          )
+
+          +1                                      // Normalize from [-1 to 1] to [0 to 2]. 
+          
+        ) * 100.0;   // Bring into our 8-bit color space, brightness down a bit
+
+        setPixelRGB( p , 0 , 0 , b );
+        
+      }
+
+
+      delayWithReturnFlag(10);
+
+      rotatedAngle += ( 2.0 * PI ) / ( 1.0 * waveSteps * cycle_count);
+      
+    }
+
+  }
+  
+}  
+
+
+void discoMode(void) {
+    
+  while (!effectReturnFlag) {     
+      
+      uint8_t h = rand() & 0xff;
+      
+      uint8_t t = (rand() & 0x0f) * 5;
+      
+      uint8_t p = rand() % 6;
+      
+      setPixelHSB( p , h , 255 , 200 );
+      
+      delayWithReturnFlag( t );
+      
+      setPixelRGB( p , 0 , 0 , 0 );
+      
+  }          
+    
+}    
+
+      
+
+#define EFFECT_COUNT 6          // Max is 6 since we only have 6 pixels to show the selection on. 
+
+uint8_t currentEffect = 0 ;
+
+// Handle button down event, show something nice while waiting for button to go up again
+
+void showEffects() {
+	
+	while (1) {
+		
+		effectReturnFlag=0;             // Next button down will set this
+	
+	    // Show current effect
+	
+	    switch (currentEffect) {
+			
+			case 0:
+			    rainbowBreathingEffect();
+				break;
+				
+		    case 1:
+			    RedSpinnerEffect();
+				break;
+                
+            case 2:
+                blueWaveEffect();
+                break;                
+                
+            case 3:
+                rainbowSpinnerEffect();
+                break;
+						
+            case 4:
+                discoMode();
+                break;
+                
+            case 5:
+                rainbowFadeEffect();
+                break;
+                
+                        
+		}
+	
+	    // If we get here, then the button was pressed and effectReturnFlag was set in the button ISR
+		
+		// Step the next effect
+
+		currentEffect++;
+		
+		if (currentEffect==EFFECT_COUNT) {
+			currentEffect=0;
+		}
+				
+		// Show a nice flasher while we wait for button up
+		
+		do {
+			
+			setPixelRGB( 0 , 0 , 255 , 0 );
+			setPixelRGB( 1 , 0 ,   0 , 0 );
+			setPixelRGB( 2 , 0 , 255 , 0 );
+			setPixelRGB( 3 , 0 ,   0 , 0 );
+			setPixelRGB( 4 , 0 , 255 , 0 );
+			setPixelRGB( 5 , 0 ,   0 , 0 );
+								
+    	    _delay_ms(20);      // Debounce on the way down
+            
+			setPixelRGB( 0 , 0 ,   0 , 0 );
+			setPixelRGB( 1 , 0 , 255 , 0 );
+			setPixelRGB( 2 , 0 ,   0 , 0 );
+			setPixelRGB( 3 , 0 , 255 , 0 );
+			setPixelRGB( 4 , 0 ,   0 , 0 );
+			setPixelRGB( 5 , 0 , 255 , 0 );
+            
+            _delay_ms(20);
+            			
+						    		
+	    } while (BUTTON_DOWN()); 
+        
+        setRGB( 0, 0, 0 );
+	
+	    _delay_ms(20);      // debounce on the way up
+		
+	}
 }
 
 
@@ -487,77 +1013,32 @@ int main(void)
     
     
     setupTimers();
+	setupButton();
         
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
+	
+	showEffects();
     
-    
-    while(1) {
+	
+    while(0) {
         
-        setRGB( 0 , 0 , analogRead() );
+        //setRGB( 0 , 0 , analogRead() );
+        
+        uint8_t a = analogRead();
+        
+        for(uint8_t p=0;p<PIXEL_COUNT;p++){
+            rawValueB[p] = a;
+        }            
         
         _delay_ms(10);
         
     }
     
-    while (1) {
-        
-
-        for( int b=0; b<255; b+=3) {
-                           
-            setRGB( b , 0 , 0);
-                
-            _delay_ms(10);
-            
-        }
-        
-        _delay_ms(100);
-        
-        for( int b=0; b<255; b+=3 ) {
-            
-            setRGB( 0 , b , 0);
-            
-            _delay_ms(10);
-            
-        }
-        
-        _delay_ms(100);
-        
-        for( int b=0; b<255; b+=1 ) {
-            
-            setRGB( 0 , 0 ,  b);
-            
-            _delay_ms(10);
-            
-        }
-        
-        _delay_ms(100);
-        
-        
-        for( uint8_t i=0;i<20;i++) {                       // DO it 10 times
-            
-            for( uint8_t s=0; s<20; s++) {                 // step animation 10 frames per pixel 
-                
-                uint8_t b = s * ( 256/20) ;                             // (so we are just generating the brightness for pixel 0)
-                        
-                for( uint8_t p=0; p<PIXEL_COUNT;p++) {      // Set value each pixel
-                
-                    setPixelRGB( p , 0 , b ,  0);
-                    
-                    b += (256/PIXEL_COUNT) ;                          // everything just works naturally via overflow rollover)
-                    
-                }                    
-            
-                _delay_ms(10);
-                
-            }                
-            
-        }
         
         
         
         
-    }
-    
+   
         
     /*
     set_sleep_mode( SLEEP_MODE_PWR_DOWN );
