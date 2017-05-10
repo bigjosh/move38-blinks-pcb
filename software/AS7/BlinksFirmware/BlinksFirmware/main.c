@@ -208,6 +208,7 @@ void setupTimers(void) {
            
     TCCR0B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
         _BV( CS01 );                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0
+//        _BV( CS00 );                        // clkI/O/1 (From prescaler)- This line also turns on the Timer0
     
     
     TIMSK0 = _BV( TOIE0 );                  // The corresponding interrupt is executed if an overflow in Timer/Counter0 occurs
@@ -227,13 +228,15 @@ void setupTimers(void) {
     TCNT2= 255;                             // This will overflow immediately and set the outputs to 1 so LEDs are off.
     
     TCCR2A = 
-        _BV( COM2B1) |                        // Set OC0A on Compare Match, clear OC0A at BOTTOM (inverting mode) (clearing turns off pump and on LED)
+        _BV( COM2B1) |                        // Clear OC0B on Compare Match, set OC0B at BOTTOM, (non-inverting mode) (clearing turns off pump and on LED)
+//        _BV( COM2B1) | _BV( COM2B0)|            // Set OC0A on Compare Match, Set OC0B on Compare Match, clear OC0B at BOTTOM, (inverting mode)
+        
         _BV( WGM01) | _BV( WGM00)           // Mode 3 - Fast PWM TOP=0xFF
     ;
     
     TCCR2B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
-        _BV(CS01);                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0
-    
+        _BV(CS01);                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0    
+        //_BV(CS00);                        // clkI/O/1 (From prescaler)- This line also turns on the Timer0
     
     // TODO: Maybe use Timer2 to drive the ISR since it has Count To Top mode available. We could reset Timer0 from there.
 
@@ -1017,10 +1020,12 @@ int main(void)
         
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
 	
-	showEffects();
+//	showEffects();
     
 	
-    while(0) {
+    // Blue testing mode
+    
+    while(1) {
         
         //setRGB( 0 , 0 , analogRead() );
         
