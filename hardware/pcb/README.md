@@ -46,13 +46,12 @@ A: Glad you asked!
 
 ## TODO
 
-* Reverse battery protection. Probably P-CHAN MOSFET.
-
-* Replace D7 with N-CHAN MOSFET (possibly half of a double, with the P-CHAN used for reverse battery protection?). More efficient, fewer parts.
+* Replace D7 with N-CHAN MOSFET (possibly half of a double, with the P-CHAN used for reverse battery protection?). More efficient, fewer parts. But I just can't figure out how to make it work!
 
 ## Future Directions
 
 * Try to gang one side of all the IR LEDs together to save IO pins, and possibly move the cathodes of the display LEDs all onto one port for efficiency. This should be possible since we can charge one IR LED while the others float... I think?
  
 * Add a boost for green too so we can run the battery all the way down to 1.8V. Doesn't seem necessary for now, and don't know if there is really enough energy left down there to be worth it (what if we only get like 10 mins?).
+
 * CAPSENSE somewhere? Maybe on button body? Nice to know that a finger is approaching or a hand just waved above. Free, just design time. 
