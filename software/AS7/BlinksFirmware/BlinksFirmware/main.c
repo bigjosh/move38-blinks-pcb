@@ -11,6 +11,7 @@
 #include <avr/eeprom.h>
 #include <avr/pgmspace.h>           // PROGMEM to keep data in flash
 #include <math.h>
+#include <stdlib.h>                 // rand()
 
 #define F_CPU 1000000           // Default fuses
 
@@ -202,8 +203,8 @@ void setupTimers(void) {
 
     TCCR0A =
         _BV( WGM00 ) | _BV( WGM01 ) |       // Set mode=3 (0b11)
-        _BV( COM0A1) |                      // Clear OC0A on Compare Match, set OC0A at BOTTOM, (non-inverting mode) (clearing turns LED on)
-        _BV( COM0B1)                        // Clear OC0B on Compare Match, set OC0B at BOTTOM, (non-inverting mode)
+        _BV( COM0A1) | _BV( COM0A0 )|       // Set OC0A on Compare Match, clear OC0A at BOTTOM (inverting mode)
+        _BV( COM0B1) | _BV( COM0B0 )        // Set OC0B on Compare Match, clear OC0B at BOTTOM, (inverting mode)
     ;
            
     TCCR0B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
@@ -228,9 +229,7 @@ void setupTimers(void) {
     TCNT2= 255;                             // This will overflow immediately and set the outputs to 1 so LEDs are off.
     
     TCCR2A = 
-        _BV( COM2B1) |                        // Clear OC0B on Compare Match, set OC0B at BOTTOM, (non-inverting mode) (clearing turns off pump and on LED)
-//        _BV( COM2B1) | _BV( COM2B0)|            // Set OC0A on Compare Match, Set OC0B on Compare Match, clear OC0B at BOTTOM, (inverting mode)
-        
+       _BV( COM2B1) | _BV( COM2B0)|         // Set OC0A on Compare Match, Set OC0B on Compare Match, clear OC0B at BOTTOM, (inverting mode)        
         _BV( WGM01) | _BV( WGM00)           // Mode 3 - Fast PWM TOP=0xFF
     ;
     
@@ -246,7 +245,7 @@ void setupTimers(void) {
 
 // Note that LINE is 0-5 whereas the pixels are labeled p1-p6 on the board. 
 
-void commonActivate( uint8_t line ) {         
+void commonDeactivate( uint8_t line ) {         
     
     // TODO: These could probably be compressed with some bit hacking
     // TODO: Check if we really need dedicated two sides on IR LEDs and if not, use a full PORTC bitwalk to get rid of all this
@@ -281,7 +280,7 @@ void commonActivate( uint8_t line ) {
     
 }
 
-void commonDeactivate( uint8_t line ) {           // Also deactivates previous
+void commonActivate( uint8_t line ) {           // Also deactivates previous
     
         switch (line) {
             
@@ -535,7 +534,7 @@ inline static void setPixelRGB( uint8_t p, uint8_t r, uint8_t g, uint8_t b ) {
     
     rawValueR[p] = 255- (pgm_read_byte(&gamma8[r])/4);
     rawValueG[p] = 255- (pgm_read_byte(&gamma8[g])/4);
-    rawValueB[p] = 255 -(pgm_read_byte(&gamma8[b])/2);
+    rawValueB[p] = 255- (pgm_read_byte(&gamma8[b])/2);
             
 }
 
@@ -1020,9 +1019,9 @@ int main(void)
         
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
 	
-//	showEffects();
+	showEffects();
     
-	
+/*	
     // Blue testing mode
     
     while(1) {
@@ -1039,7 +1038,7 @@ int main(void)
         
     }
     
-        
+ */       
         
         
         
