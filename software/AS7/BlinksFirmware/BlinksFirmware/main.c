@@ -11,6 +11,7 @@
 #include <avr/eeprom.h>
 #include <avr/pgmspace.h>           // PROGMEM to keep data in flash
 #include <math.h>
+#include <stdlib.h>                 // rand()
 
 #define F_CPU 1000000           // Default fuses
 
@@ -1020,8 +1021,9 @@ int main(void)
         
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
 	
-//	showEffects();
-    
+	showEffects();
+
+    /*    
 	
     // Blue testing mode
     
@@ -1040,7 +1042,7 @@ int main(void)
     }
     
         
-        
+    */  
         
         
    
