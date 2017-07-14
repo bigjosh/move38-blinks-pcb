@@ -21,8 +21,6 @@
 #include "utils.h"
 #include "ir_comms.h"
 
-
-
 // Common Anodes - We drive these 1 to select Pixel. 
 
 #define PIXEL1_PORT PORTB
@@ -1005,7 +1003,11 @@ int main(void)
     
     ir_init();
     
-    blinkIr();
+    sei();
+    
+    while (1);
+    
+    //blinkIr();
       
     setupPixelPins();
     
