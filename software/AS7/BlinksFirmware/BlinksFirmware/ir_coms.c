@@ -66,7 +66,7 @@
 
 #define IR_PCI     PCIE1
 #define IR_ISR     PCINT1_vect
-#define IR_MASK    PCMSK1
+#define IR_MASK    PCMSK1           // Each bit here corresponds to 1 pin
 #define IR_PCINT   IR_BITS
 
 
@@ -76,13 +76,16 @@ ISR(IR_ISR)
 
     DEBUG_1();                
     
+               
     // Capture the current time
     
     //uint8_t now = TIMER_NOW();
     
     // Find out which IR LED(s) went low to trigger this interrupt
-    
+            
     uint8_t ir_LED_triggered_bits = (~IR_CATHODE_PIN) & IR_BITS;      // A 1 means that LED triggered
+    
+    PCMSK1 &= ~ir_LED_triggered_bits;                                 // stop Triggering interupts on these pins becuase they are going to change when we charge them
     
     // TODO: Access PIN register toggle to save a couple instructions charging
         
@@ -105,9 +108,18 @@ ISR(IR_ISR)
     
     // Only takes a tiny bit of time to charge up the cathode, even though the pull-up so no extra delay needed here...
     
+
+
+    PCMSK1 |= ir_LED_triggered_bits;    // Re-enable pin change on the pins we just charged up
+                                        // Note that we must do this while we know the pins are still high
+                                        // or there might be a *tiny* race condition if the pin changed in the cycle right after
+                                        // we finished charging but before we enabled interrupts. This would latch until the next 
+                                        // recharge timeout.
+                                            
     // Stop charging LED cathode pins
     
     IR_CATHODE_PORT = ir_non_LED_bits;
+    
             
     //ir_tx_pulse( LED_BIT(5) );          // Blink D5
         
