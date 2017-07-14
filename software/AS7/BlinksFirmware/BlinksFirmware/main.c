@@ -5,6 +5,8 @@
  * Author : josh.com
  */ 
 
+#include "blinks.h"
+
 #include <avr/io.h>
 #include <avr/sleep.h>
 #include <avr/interrupt.h>
@@ -13,15 +15,12 @@
 #include <math.h>
 #include <stdlib.h>                 // rand()
 
-#define F_CPU 1000000           // Default fuses
 
 #include <util/delay.h>         // Must come after F_CPU definition
 
+#include "utils.h"
+#include "ir_comms.h"
 
-// Bit manipulation macros
-#define SBI(x,b) (x|= (1<<b))           // Set bit in IO reg
-#define CBI(x,b) (x&=~(1<<b))           // Clear bit in IO reg
-#define TBI(x,b) (x&(1<<b))             // Test bit in IO reg
 
 
 // Common Anodes - We drive these 1 to select Pixel. 
@@ -83,8 +82,6 @@ volatile uint8_t rawValueB[PIXEL_COUNT];
 #define BLUE_SINK_PORT PORTE
 #define BLUE_SINK_DDE  DDRE
 #define BLUE_SINK_BIT  3
-
-
 
 #define BUTTON_PORT    PORTD
 #define BUTTON_PIN     PIND
@@ -337,7 +334,6 @@ uint8_t readVccX10(void) {              // Return Vcc x10
 }
 
 
-
 volatile uint8_t vccAboveBlueFlag=0;        // Is the battery voltage higher than the blue LED forward voltage?
                                             // If so, then we need a different straegy to dim since the LED
 											// will always be on Even when the pump is not pushing. 
@@ -501,7 +497,7 @@ ISR(TIMER0_OVF_vect)
 
 // Gamma table curtsey of adafruit...
 //https://learn.adafruit.com/led-tricks-gamma-correction/the-quick-fix
-// TODO: Compress this down, we probably only need like 4 bits of resoltuion. 
+// TODO: Compress this down, we probably only need like 4 bits of resolution. 
 
 const uint8_t PROGMEM gamma8[] = {
     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
@@ -998,12 +994,18 @@ void showEffects() {
 }
 
 
+
+
 // Timer1 for internal time keeping (mostly timing IR pulses) because it is 16 bit and its pins happen to fall on ports that are handy for other stuff
 // Timer0 A=Red, B=Green. Both happen to be on handy pins
 // Timer2B for Blue duty. Works out perfectly because we can use OCR2A as a variable TOP to change the frequency for the charge pump, which is better to change than duty. 
 
 int main(void)
 {
+    
+    ir_init();
+    
+    blinkIr();
       
     setupPixelPins();
     
