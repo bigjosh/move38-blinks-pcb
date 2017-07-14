@@ -155,8 +155,10 @@ void setupPixelPins(void) {
 
 // CLOCK CALCULATIONS
 // Master clock is running at 1Mhz mostly to avoid FCC 15 issues. 
-// Timer0 running with a /8 prescaller, so one PWM cycle takes ~2ms and full refresh takes ~12ms giving 81Hz refrsh
+// Timer0 running with a /8 prescaller, so timer clock = 128Khz, so full cycle around 256 steps = 2.04ms, so full refresh of all 6 LEDs takes ~12ms giving 81Hz vidual refresh
 // The large scale timer is based on an overflowing uint16_t, so that will trigger every 2ms * 65536 = ~2 minutes
+
+// Note that we have limited prescaller options, only 1,8,64 - so while 1ms might have been better, 2ms is closest we can reasonably get. 
 
 
 // Timers are hardwired to colors. No pin portable way to do this.
@@ -171,8 +173,8 @@ void setupPixelPins(void) {
 
 void setupTimers(void) {
     
-    // ** First the main Timer0 to drive R & G. We also use the overflow to jump to the next multiplexed pixel 
-    // Lets start with a prescaller of 8, which gives us a ~80hz refresh rate on the full 6 leds which should look smooth
+    // First the main Timer0 to drive R & G. We also use the overflow to jump to the next multiplexed pixel.
+    // Lets start with a prescaller of 8, which will fire at 1Mhz/8 = gives us a ~80hz refresh rate on the full 6 leds which should look smooth
     // TODO: How does frequency and duty relate to power efficiency? We can always lower to and trade resolution for faster cycles
     
     // We are running in FAST PWM mode where we continuously count up to TOP and then overflow. Not sure best TOP yet so try 255.
@@ -204,7 +206,7 @@ void setupTimers(void) {
            
     TCCR0B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
         _BV( CS01 );                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0
-//        _BV( CS00 );                        // clkI/O/1 (From prescaler)- This line also turns on the Timer0
+                                                
     
     
     TIMSK0 = _BV( TOIE0 );                  // The corresponding interrupt is executed if an overflow in Timer/Counter0 occurs
@@ -401,11 +403,13 @@ volatile uint8_t previousPixel;     // Which pixel was lit on last pass?
 // values for the currently displayed pixel (the last loaded OCR values), because we have arranged things so that LEDs
 // are always *off* for the 1st half of the cycle. 
 
+// This fires every 1ms (1Khz)
 
 ISR(TIMER0_OVF_vect)
 {
-	    
-		
+    
+    ir_refresh();
+    return;
 		
     commonDeactivate( previousPixel );
 
@@ -1000,8 +1004,11 @@ void showEffects() {
 
 int main(void)
 {
+    DEBUG_INIT();
     
     ir_init();
+    
+    setupTimers();
     
     sei();
     

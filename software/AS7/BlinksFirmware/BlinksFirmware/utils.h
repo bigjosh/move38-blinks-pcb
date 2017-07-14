@@ -15,10 +15,10 @@
 #define TBI(x,b) (x&(1<<b))             // Test bit in IO reg
 
 
-// Use pin 1 for debug port
-#define DEBUG_INIT()      SBI( DDRD  , 3 )         // Debug on pin #1 PD5
-#define DEBUG_1()         SBI( PORTD , 3)
-#define DEBUG_0()         CBI( PORTD , 3)
+// Use pin 19 (PE2)for debug port
+#define DEBUG_INIT()      SBI( DDRE  , 2)         // Debug on pin #1 PD5
+#define DEBUG_1()         SBI( PORTE , 2)
+#define DEBUG_0()         CBI( PORTE , 2)
 
 
 #endif /* UTILS_H_ */
