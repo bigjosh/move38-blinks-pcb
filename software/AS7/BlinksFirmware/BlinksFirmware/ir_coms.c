@@ -55,7 +55,7 @@ void ir_tx_pulse( uint8_t bitmask ) {
       
       IR_ANODE_PORT  |= bitmask;    // Blink!
       
-      // TODO: Is this the right TX pulse with? Currently 5.8us
+      // TODO: Is this the right TX pulse with? Currently ~6us total width
       // Making too long wastes (a little?) battery and time
       // Making too short might not be enough light to trigger the RX on the other side
       // when TX voltage is low and RX voltage is high?
@@ -90,8 +90,7 @@ void blinkIr(void) {
     // ANode always drive, default to 0
     SBI( IR_ANODE_DDR , 0 );    
 
-    cli();      //Peski interrupts mess everything up!
-
+    cli();      //Pesky interrupts mess everything up!
     
     while (1) {
         
@@ -100,7 +99,7 @@ void blinkIr(void) {
         SBI( IR_CATHODE_PORT , 0 );         // Pull-up on
      //   SBI( IR_CATHODE_DDR , 0 );         // Pull-up on
         
-      //  _delay_us(20);
+        //_delay_us(20);
         
         CBI( IR_CATHODE_DDR , 0 );
         
@@ -109,15 +108,14 @@ void blinkIr(void) {
         
         _delay_ms(1);
         
-        ir_tx_pulse( LED_BIT(5) );          // Blink D5
+        //ir_tx_pulse( LED_BIT(5) );          // Blink D5
         
-        _delay_ms(30);
+        //_delay_ms(30);
 
         DEBUG_1();                
-        //while (TBI( IR_CATHODE_PIN , 0 ));
+        while (TBI( IR_CATHODE_PIN , 0 ));
         DEBUG_0();        
-        
-                
+                        
         //_delay_ms(10);
     }        
     
