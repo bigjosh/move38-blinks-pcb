@@ -70,6 +70,17 @@
 #define IR_PCINT   IR_BITS
 
 
+// Recharge the specificed LEDs 
+// Suppress pin change interrupt on them
+
+
+// This gets called anytime one of the IR LED cathodes has a level change drops. This typically happens because some light 
+// hit it and discharged the capacitance, so the pin goes from high to low. We initialize each pin at high, and we charge it
+// back to high everything it drops low, so we should in practice only ever see high to low transistions here.
+
+// Note that there is also a backround task that periodically recharges all the LEDs freqnectly enought that 
+// that they should only ever go low from a very bright sounce - like an IR led pointing right down thier barrel. 
+
 ISR(IR_ISR)
 {	
 
@@ -87,28 +98,24 @@ ISR(IR_ISR)
     
     PCMSK1 &= ~ir_LED_triggered_bits;                                 // stop Triggering interupts on these pins becuase they are going to change when we charge them
     
-    // TODO: Access PIN register toggle to save a couple instructions charging
-        
-    // Extract out the high pins that have nothing to do with what we are doing now
-    // Note that more LED pins could have changed bewteen these two lines, but that is ok becuase we 
-    // Already saved the state of the LED pins above. The other pins are outputs, so can not change
-    // because interrupts are disabled here. 
-    
-    uint8_t ir_non_LED_bits = IR_CATHODE_PIN & (~IR_BITS);    
-
     // charge up receiver cathode pins while keeping other pins intact
            
     // This will enable the pull-ups on the LEDs we want to change without impacting other pins
     // The other pins will stay whatever they were.
     
-    IR_CATHODE_PORT =  ( ir_LED_triggered_bits) | ( ir_non_LED_bits );
+    // NOTE: We are doing something tricky here. Writing a 1 to a PIN bit actually toggles the PORT bit. 
+    // This saves about 10 instructions to manually load, or, and write back the bits to the PORT. 
     
-   
-    // TODO: DO we need to goto output mode here? Just more code....
+    
+    /*
+        19.2.2. Toggling the Pin
+        Writing a '1' to PINxn toggles the value of PORTxn, independent on the value of DDRxn. 
+    */
+    
+    IR_CATHODE_PIN =  ir_LED_triggered_bits;
     
     // Only takes a tiny bit of time to charge up the cathode, even though the pull-up so no extra delay needed here...
     
-
 
     PCMSK1 |= ir_LED_triggered_bits;    // Re-enable pin change on the pins we just charged up
                                         // Note that we must do this while we know the pins are still high
@@ -116,11 +123,10 @@ ISR(IR_ISR)
                                         // we finished charging but before we enabled interrupts. This would latch until the next 
                                         // recharge timeout.
                                             
-    // Stop charging LED cathode pins
+    // Stop charging LED cathode pins (toggle the triggered bits backt o what they were)
     
-    IR_CATHODE_PORT = ir_non_LED_bits;
-    
-            
+    IR_CATHODE_PIN = ir_LED_triggered_bits;     
+                
     //ir_tx_pulse( LED_BIT(5) );          // Blink D5
         
     //_delay_ms(30);
@@ -131,6 +137,25 @@ ISR(IR_ISR)
     // as soon as we return and interrupts are enabled again.      
         
 }
+
+
+// This should be called by a background timer to refresh any LEDs that have not trigged lately.
+// This keeps them topped off so that normal bleeding discharge or low level ambient light is not enough to 
+// trigger a pin change.
+
+// Note that there is  a race condition here where an LED could discharge between when the timer fires and turns off interrupts,
+// and when this code charges the LED back up. If this happens, we will see the pin change when interrupts are reenabled after
+// the timer is finish and do a redundant recharge f that LED.
+
+void ir_refresh(void) {
+    
+    IR_CATHODE_PORT |= IR_BITS;         // Enable Pull-ups
+    
+    // Charging right now...
+    
+    IR_CATHODE_PORT &= ~IR_BITS;        // Disable pull-ups
+        
+}    
 
 
 // Bits 0-5 represent IR leds 0-6
