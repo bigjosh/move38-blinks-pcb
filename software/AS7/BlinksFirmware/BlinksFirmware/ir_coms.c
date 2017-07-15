@@ -167,6 +167,19 @@ void ir_refresh(void) {
 }    
 
 
+/*
+
+    Optimal IR refresh ISR...
+
+ 16c:	8f 93       	push	r24
+ 16e:	8d e3       	ldi	r24, 0x3D	; 61
+ 170:	86 b9       	out	0x06, r24	; 6
+ 172:	86 b9       	out	0x06, r24	; 6
+ 174:	8f 91       	pop	r24
+ 17e:	18 95       	reti
+
+*/
+
 // Bits 0-5 represent IR leds 0-6
 // Default state is waiting for pulse, so...
 // Anode   : driven 0 - to give a ground to the capactior

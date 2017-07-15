@@ -403,12 +403,15 @@ volatile uint8_t previousPixel;     // Which pixel was lit on last pass?
 // values for the currently displayed pixel (the last loaded OCR values), because we have arranged things so that LEDs
 // are always *off* for the 1st half of the cycle. 
 
-// This fires every 1ms (1Khz)
+// This fires every 2ms (500hz)
 
 ISR(TIMER0_OVF_vect)
 {
     
-    ir_refresh();
+    
+    ir_refresh();         // Max latency of pulse detect is 140us. 
+    sei();      // Enable interrupts so that a received pulse will not get delayed
+
     return;
 		
     commonDeactivate( previousPixel );
