@@ -78,8 +78,8 @@
 // hit it and discharged the capacitance, so the pin goes from high to low. We initialize each pin at high, and we charge it
 // back to high everything it drops low, so we should in practice only ever see high to low transistions here.
 
-// Note that there is also a backround task that periodically recharges all the LEDs freqnectly enought that 
-// that they should only ever go low from a very bright sounce - like an IR led pointing right down thier barrel. 
+// Note that there is also a background task that periodically recharges all the LEDs frequently enough that 
+// that they should only ever go low from a very bright source - like an IR led pointing right down their barrel. 
 
 ISR(IR_ISR)
 {	
@@ -96,7 +96,7 @@ ISR(IR_ISR)
             
     uint8_t ir_LED_triggered_bits = (~IR_CATHODE_PIN) & IR_BITS;      // A 1 means that LED triggered
     
-    PCMSK1 &= ~ir_LED_triggered_bits;                                 // stop Triggering interupts on these pins becuase they are going to change when we charge them
+    PCMSK1 &= ~ir_LED_triggered_bits;                                 // stop Triggering interrupts on these pins because they are going to change when we charge them
     
     // charge up receiver cathode pins while keeping other pins intact
            
@@ -245,7 +245,7 @@ void ir_tx_pulse( uint8_t bitmask ) {
 
 // Blink LED D5 at about 100hz for testing.
 // We pick that one because it shows up on the MOSI pin (pin #1 on ISP)
-// so it is easy to easedrop on it. 
+// so it is easy to ease drop on it. 
 
 void blinkIr(void) {
     
@@ -254,15 +254,9 @@ void blinkIr(void) {
     DEBUG_INIT();
     
     // RX on 0
-       
-    // ANode always drive, default to 0
-    SBI( IR_ANODE_DDR , 0 );    
-
-    cli();      //Pesky interrupts mess everything up!
-    
+           
     while (1) {
-        
-       
+               
         // charge up receiver cathode
         SBI( IR_CATHODE_PORT , 0 );         // Pull-up on
      //   SBI( IR_CATHODE_DDR , 0 );         // Pull-up on
