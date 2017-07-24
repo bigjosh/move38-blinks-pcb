@@ -11,5 +11,6 @@
 
 #define F_CPU 1000000           // Default fuses
 
+#define IRLED_COUNT 6               // Total number of IRLEDs 
 
 #endif /* BLINKS_H_ */

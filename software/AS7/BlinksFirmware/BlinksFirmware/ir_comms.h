@@ -24,43 +24,24 @@ void ir_tx_pulse( uint8_t bitmask );
 
 // Blink LED D5 at about 100hz for testing.
 // We pick that one because it shows up on the MOSI pin (pin #1 on ISP)
-// so it is easy to easedrop on it. 
+// so it is easy to ease drop on it. 
 
 void blinkIr(void);
 
 
-
-// This should be called by a background timer to refresh any LEDs that have not trigged lately.
-// This keeps them topped off so that normal bleeding discharge or low level ambient light is not enough to 
-// trigger a pin change.
-
-// Since the pin change interrupt always recharges any pins that weren't low, these should all already be high 
-// so topping them off should not trigger a pin change. 
-
-// Note that there is  a race condition here where an LED could discharge between when the timer fires and turns off interrupts,
-// and when this code charges the LED back up. If this happens, we will see the pin change when interrupts are reenabled after
-// the timer is finish and do a redundant recharge f that LED.
+// This ISR should be called at deterministically fixed intervals.
+// It...
+// 1. Reads LEDs to see if any pulses were received since last call
+// 2. Recharges LEDs to be read to receive pulses during upcoming interval
+// 3. Decodes bits and bytes and puts them into ir_values[] when a byte is successfully received.
 
 // TODO: Maybe this should be a macro to save the overhead of calling a 2 instruction function.
-// TODO: Use PIN rather than PORT to make smaller and faster.
 
-void ir_refresh(void);
+void ir_isr(void);
 
+// Last received byte from corresponding IRLED
+// TODO: Buffer? Async notice?
 
-#define IR_CATHODE_PORT PORTC
-#define IR_CATHODE_DDR  DDRC
-#define IR_CATHODE_PIN  PINC
-
-#define IR_ANODE_PORT PORTB
-#define IR_ANODE_DDR  DDRB
-#define IR_ANODE_PIN  PINB
-
-#define IR_BITS     (_BV( 0 )|_BV( 0 )|_BV( 2 )|_BV( 3 )|_BV( 4 )|_BV( 5 ))
-
-#define IR_REFRESH2() IR_CATHODE_PORT |= IR_BITS; IR_CATHODE_PORT &= ~IR_BITS        // Jitter 90us
-
-#define IR_REFRESH3() IR_CATHODE_PIN = IR_BITS; IR_CATHODE_PIN = IR_BITS        // Jitter 90us
-        
-#define IR_REFRESH() ir_refresh()    
+volatile uint8_t irled_value[IRLED_COUNT];   
     
 #endif /* IR-COMMS_H_ */

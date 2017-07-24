@@ -407,10 +407,8 @@ volatile uint8_t previousPixel;     // Which pixel was lit on last pass?
 
 ISR(TIMER0_OVF_vect)
 {
-    
-    
-    ir_refresh();         // Max latency of pulse detect is 140us. 
-    sei();      // Enable interrupts so that a received pulse will not get delayed
+           
+    ir_isr();         // Max latency of pulse detect is 140us. 
 
     return;
 		

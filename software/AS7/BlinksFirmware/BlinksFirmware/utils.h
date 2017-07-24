@@ -16,9 +16,8 @@
 
 
 // Use pin 19 (PE2)for debug port
-#define DEBUG_INIT()      SBI( DDRE  , 2)         // Debug on pin #1 PD5
+#define DEBUG_INIT()      SBI( DDRE  , 2)         // Debug on pin #19 PE2 (otherwise unused)
 #define DEBUG_1()         SBI( PORTE , 2)
 #define DEBUG_0()         CBI( PORTE , 2)
-
 
 #endif /* UTILS_H_ */
