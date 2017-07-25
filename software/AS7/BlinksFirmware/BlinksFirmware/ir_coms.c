@@ -15,6 +15,111 @@
 #include "ir_comms.h"
 #include "utils.h"
 
+
+// Send a pulse on all LEDs that have a 1 in bitmask
+// bit 0= D1, bit 1= D2...
+// This clobbers whatever charge was on the LED, so only call after you have checked it.
+// You must charge the LED after this too if you want to receive on it.
+
+// TODO: Queue TX so they only happen after a successful RX or idle time. Unnecessary since TX time so short?
+
+
+void ir_tx_pulse( uint8_t bitmask ) {
+
+    // ANODE always driven
+
+      IR_CATHODE_DDR |= bitmask ;   // Drive Cathode too (now driving low)
+      
+      // TODO: Use PIN toggle to save a load/store
+      
+      IR_ANODE_PORT  |= bitmask;    // Blink!
+      
+      // TODO: Is this the right TX pulse with? Currently ~6us total width
+      // Making too long wastes (a little?) battery and time
+      // Making too short might not be enough light to trigger the RX on the other side
+      // when TX voltage is low and RX voltage is high?
+      // Also replace with a #define and _delay_us() so works when clock changes?
+
+      asm("nop");
+      asm("nop");
+      asm("nop");
+            
+      //_delay_us(1);
+      IR_ANODE_PORT  ^= bitmask;   // un-Blink! Should be on for ~2us @1Mhz clock 
+
+
+      IR_CATHODE_DDR ^= bitmask ;   // Cathode back to inpit too (now driving low)
+      // TODO: Charge up cap whn all TX work done
+     
+}
+
+// For testing. 
+
+
+// from http://www.microchip.com/forums/m587239.aspx
+uint8_t oddParity(uint8_t p)
+     {
+      p = p ^ (p >> 4 | p << 4);
+      p = p ^ (p >> 2);
+      p = p ^ (p >> 1);
+      return p & 1;
+     }
+
+static uint8_t tx_value=0;
+
+// Bits are 3x spread to account for clock drift. 
+// We always start at 0 which is the start pulse
+// Then we send MSB bit at slot 2,8, and every 3rd slot until LSB 8th bit , followed by stop bit 
+// Stop bit just makes sure we do not see a single pulse as a 0x00
+
+static uint8_t send_slot=0;        // Count up to 255 just to put some idle between bytes   
+
+// Call this once per slot and it will slowly and repeatedly send out the requested bit
+
+void send_test_byte( uint8_t mask) {
+    
+    //tx_value=65;
+    
+    if (send_slot==0) {
+        
+            // Start 
+            ir_tx_pulse( mask );        
+            
+    } else {
+        
+        uint8_t bitslot = (send_slot-1) / 3;
+        
+        if (bitslot<8) {                // Only send actual bits during the 1st 8 slots after 
+        
+            if ( ( (send_slot-1) - (bitslot*3) ) == 2 ) {       // Only send actual bit in the middle slot
+            
+                if ( tx_value & ( 1 << (7-bitslot) ) ) {            // Only send pulse if bit is 1
+                    
+                    ir_tx_pulse( mask );
+                    
+                }
+                
+            }
+            
+        }   if (send_slot == ( 1 + 1 + (9*3) ) ) {           // parity bit
+            
+            if (oddParity( tx_value) ) {
+
+                    ir_tx_pulse( mask );
+                
+            }                
+            
+        }            
+        
+    }                                                                 
+        
+    send_slot++;
+    
+    if (!send_slot) tx_value++;     // Cycle though values
+            
+}     
+
+
 // Recharge the specified LEDs 
 // Suppress pin change interrupt on them
 
@@ -35,7 +140,6 @@ volatile uint8_t irled_value[IRLED_COUNT];
 
 void ir_isr(void)
 {	
-
     // bitstream  keeps track of the most recently received fixed time slices for each LED 
     // LEDs are checked for pulses at fixed time intervals in this ISR. 
     
@@ -50,6 +154,9 @@ void ir_isr(void)
     // We recharge the LED at each slice.
     // TODO: Maybe send two blinks to avoid a collision if we happened to TX at the exact moment that the RX is charging? Charging is very fast so no issue.
     
+    // TODO: make up to 8 consecutive data bits without start pulse to improve throughput?  
+    // Need some kind of check to prevent degenerate case where a single pulse looks like the byte 0x00...
+        
     // We can load these bit quickly by shifting 1 bit left per time slice, and we can test for 00000 to see if we are waiting and
     // test bit 5 to see if we are done. 
     
@@ -76,11 +183,12 @@ void ir_isr(void)
     static uint8_t irled_bitcount[IRLED_COUNT];     
     
     const uint8_t BITCOUNT_ERROR = UINT8_MAX;               // Indicates that we need an idle before we can start getting good data again
-    
-                   
+                       
     // Sample the LEDs!
     
     uint8_t ir_LED_PIN_sample = IR_CATHODE_PIN;      // Quickly sample the PIN (we will work the bits later)
+        
+    send_test_byte( _BV(4) );
     
     // We want this time here to be as short as possible since we can miss a pulse that happens exactly while we are recharging.
     // Or possibly see a pulse twice if it exactly straddles the recharge interval.
@@ -110,31 +218,52 @@ void ir_isr(void)
     
     IR_CATHODE_PIN = IR_BITS;     
 
+    /*
 
+    if ( (ir_LED_PIN_sample & IR_BITS  ) != IR_BITS ) {
+            DEBUG_1();
+            _delay_us(7);
+            DEBUG_0();                        
+    }            
+
+
+    */
+    
     // TODO: This is where the send code probably should go, right after we check the pin for incoming data...
     // For minimum possible collision chance
     
     // Now let's process the bits we captured above
     // Remember that an incoming blink will discharge the LED, so a 0 here means that we saw a blink in the previous time slice
     
+    #define IRLED_COUNT 1       // TODO: JUST FOR TESTING!
+    
     for( uint8_t led=0; led<IRLED_COUNT; led++) {
                 
         if (ir_bitstream[led] == 0b00000000) {            // Did we just receive a pause (8 slices of no LED in a row?)
             
             irled_bitcount[led]=0;                                //  If so, we are clear to start looking for a new byte
-            
-                        DEBUG_1();
-                        _delay_us(6);
-                        DEBUG_0();
-            
+                        
             
         } 
                 
         ir_bitstream[led]  <<= 1;                                         // Shift up one to make room for new sample 
         ir_bitstream[led]  |= !( ir_LED_PIN_sample & _BV( led ) );        // Add most recent sample (NOT because a pulse discharges LED)
         
+        
+        /*
+        
+        if (! (ir_LED_PIN_sample & _BV( led ) ) ) {
+            DEBUG_PULSE(2);                                 // Trigger scope TODO: TESTING ONLY
+            _delay_us(2);
+        }                        
+          
+          
+         */              
+                
         if ( ir_bitstream[led]  & _BV(5) ) {                              // If bit 5 set, then we potentially have a full RX bit here
                                                                           // Bit 5 right now would be the initial trigger pulse form 5 time slices ago
+                                                                          
+            DEBUG_PULSE(3);                                                                          
             
             if ( ir_bitstream[led] & 0b00010001 ) {                       // Is either of the guard slots set?
                 
@@ -143,11 +272,8 @@ void ir_isr(void)
                 
                 irled_bitcount[led]= BITCOUNT_ERROR;  
                 
-                DEBUG_1();
-                _delay_us(15);
-                DEBUG_0();
-                
-                
+                DEBUG_PULSE(4);                                                                          
+                                               
             } else {
                 
                 // Guard test passed, now we need to make sure there is at most one data pulse present
@@ -172,8 +298,14 @@ void ir_isr(void)
                                 
                     case 0b00000000:
                     
-                    
-                    
+                                        
+                                        
+                        if (databit) {
+                            DEBUG_PULSE(6);
+                        }  else {
+                            DEBUG_PULSE(7);
+                        }                            
+                                                                    
                                         
                         // If we got here, then at most one data slot was filled and a valid 0 or 1 bit was received. 
                         
@@ -182,7 +314,7 @@ void ir_isr(void)
                             irled_buffer[led] <<= 1;                  // Make room for this next bit
                             irled_buffer[led] |= databit;             // add it at the bottom
                             
-                            if (irled_bitcount[led] ==7) {            // did we jst make a full byte?
+                            if (irled_bitcount[led] ==7) {            // did we just make a full byte?
                                 
                                 irled_value[led] = irled_buffer[led];
                                 
@@ -205,12 +337,7 @@ void ir_isr(void)
                         
                     default: 
                         irled_bitcount[led]= BITCOUNT_ERROR;  
-                        
-                        DEBUG_1();
-                        _delay_us(7);
-                        DEBUG_0();
-                        
-                                               
+                                                                       
                         break;
                 }                                      
                     
@@ -249,35 +376,6 @@ void ir_init(void) {
       
 }
 
-// Send a pulse on all LEDs that have a 1 in bitmask
-// bit 0= D1, bit 1= D2...
-
-void ir_tx_pulse( uint8_t bitmask ) {
-
-    // ANODE always driven
-
-      IR_CATHODE_DDR |= bitmask ;   // Drive Cathode too (now driving low)
-      
-      IR_ANODE_PORT  |= bitmask;    // Blink!
-      
-      // TODO: Is this the right TX pulse with? Currently ~6us total width
-      // Making too long wastes (a little?) battery and time
-      // Making too short might not be enough light to trigger the RX on the other side
-      // when TX voltage is low and RX voltage is high?
-      // Also replace with a #define and _delay_ms()
-
-      asm("nop");
-      asm("nop");
-      asm("nop");
-            
-      //_delay_us(1);
-      IR_ANODE_PORT  ^= bitmask;   // un-Blink! Should be on for ~2us @1Mhz clock 
-
-
-      IR_CATHODE_DDR ^= bitmask ;   // Cathode back to inpit too (now driving low)
-      // TODO: Charge up cap whn all TX work done
-     
-}
 
 
 // Blink LED D5 at about 100hz for testing.
@@ -287,9 +385,7 @@ void ir_tx_pulse( uint8_t bitmask ) {
 void blinkIr(void) {
     
     // Lets start with 0
-    
-    DEBUG_INIT();
-    
+        
     // RX on 0
            
     while (1) {
