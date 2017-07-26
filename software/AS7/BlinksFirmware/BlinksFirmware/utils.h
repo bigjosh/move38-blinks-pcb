@@ -16,9 +16,14 @@
 
 
 // Use pin 19 (PE2)for debug port
-#define DEBUG_INIT()            SBI( DDRE  , 2)         // Debug on pin #19 PE2 (otherwise unused)
-#define DEBUG_1()               SBI( PORTE , 2)
-#define DEBUG_0()               CBI( PORTE , 2)
-#define DEBUG_PULSE(width_us)   DEBUG_1();_delay_us(width_us-2);DEBUG_0()   // Generate a pulse. width must be >= 2us.
+#define DEBUG_INIT()            SBI( DDRE  , 2); SBI(DDRE,1)         // DebugA on pin #19 PE2, DebugB on pin #6 PE1 (otherwise unused)
+#define DEBUGA_1()               SBI( PORTE , 2)
+#define DEBUGA_0()               CBI( PORTE , 2)
+#define DEBUGA_PULSE(width_us)   DEBUGA_1();_delay_us(width_us-2);DEBUGA_0()   // Generate a pulse. width must be >= 2us.
+
+#define DEBUGB_1()               SBI( PORTE , 1)
+#define DEBUGB_0()               CBI( PORTE , 1)
+#define DEBUGB_PULSE(width_us)   DEBUGB_1();_delay_us(width_us-2);DEBUGB_0()   // Generate a pulse. width must be >= 2us.
+
 
 #endif /* UTILS_H_ */

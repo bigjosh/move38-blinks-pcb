@@ -35,6 +35,9 @@ void blinkIr(void);
 // 2. Recharges LEDs to be read to receive pulses during upcoming interval
 // 3. Decodes bits and bytes and puts them into ir_values[] when a byte is successfully received.
 
+// Faster actually less noise because we are recharging LED more often. 
+// Speed limit is CPU overhead and increasing collisions and clock drift causing missed bits
+
 // TODO: Maybe this should be a macro to save the overhead of calling a 2 instruction function.
 
 void ir_isr(void);
@@ -42,6 +45,10 @@ void ir_isr(void);
 // Last received byte from corresponding IRLED
 // TODO: Buffer? Async notice?
 
-volatile uint8_t irled_value[IRLED_COUNT];   
-    
+// You can set this to a special value never sent if you want to detect neighbors.
+volatile uint8_t irled_RX_value[IRLED_COUNT];
+
+// This value is continuously sent on the corresponding face
+volatile uint8_t irled_TX_value[IRLED_COUNT];
+   
 #endif /* IR-COMMS_H_ */

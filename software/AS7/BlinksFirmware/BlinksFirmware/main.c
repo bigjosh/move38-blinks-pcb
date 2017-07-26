@@ -409,8 +409,6 @@ ISR(TIMER0_OVF_vect)
 {
            
     ir_isr();         // Max latency of pulse detect is 140us. 
-
-    return;
 		
     commonDeactivate( previousPixel );
 
@@ -996,9 +994,6 @@ void showEffects() {
 	}
 }
 
-
-
-
 // Timer1 for internal time keeping (mostly timing IR pulses) because it is 16 bit and its pins happen to fall on ports that are handy for other stuff
 // Timer0 A=Red, B=Green. Both happen to be on handy pins
 // Timer2B for Blue duty. Works out perfectly because we can use OCR2A as a variable TOP to change the frequency for the charge pump, which is better to change than duty. 
@@ -1012,9 +1007,7 @@ int main(void)
     setupTimers();
     
     sei();
-    
-    while (1);
-    
+        
     //blinkIr();
       
     setupPixelPins();
@@ -1033,6 +1026,27 @@ int main(void)
         
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
 	
+    uint16_t countdown=0;
+    
+    while (0) {
+        
+        uint8_t value = irled_RX_value[0];
+        
+        if ( value ) {
+            setPixelRGB( 0 , 0 , 255 , 0 );
+            irled_RX_value[0] = 0;
+            countdown=2000;                        
+        } else {
+            
+            if (countdown) {
+                countdown--;
+            } else {
+                setPixelRGB( 0 , 0 , 0 , 0 );
+            } 
+            }                           
+                                
+    }        
+    
 	showEffects();
 
     /*    
