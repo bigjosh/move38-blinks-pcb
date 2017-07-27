@@ -11,6 +11,8 @@
 #include <avr/io.h>
 
 
+#define IRLED_COUNT FACE_COUNT
+
 // Setup pins, interrupts
 
 void ir_init(void);

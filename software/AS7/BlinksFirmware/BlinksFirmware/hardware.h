@@ -39,7 +39,7 @@
 
 // All of the 6 GPIO bits used by IR pins. Also assumes these are the same bits in the pin change mask register.
 
-#define IR_BITS     (_BV( 0 )|_BV( 0 )|_BV( 2 )|_BV( 3 )|_BV( 4 )|_BV( 5 ))
+#define IR_BITS     (_BV( 0 )|_BV( 1 )|_BV( 2 )|_BV( 3 )|_BV( 4 )|_BV( 5 ))
 
 // IR pin change interrupts are unused so far, but we will want them for waking from sleep soon...
 // TODO: Wake on IR change. 

@@ -1026,25 +1026,30 @@ int main(void)
         
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
 	
-    uint16_t countdown=0;
+    uint16_t countdown[FACE_COUNT];
     
-    while (0) {
+    while (1) {
         
-        uint8_t value = irled_RX_value[0];
+        for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
         
-        if ( value ) {
-            setPixelRGB( 0 , 0 , 255 , 0 );
-            irled_RX_value[0] = 0;
-            countdown=2000;                        
-        } else {
-            
-            if (countdown) {
-                countdown--;
+            uint8_t value = irled_RX_value[face];
+        
+            if ( value ) {
+                
+                setPixelRGB( face , 0 , 255 , 0 );
+                irled_RX_value[face] = 0;
+                countdown[face]=200;                        
+                
             } else {
-                setPixelRGB( 0 , 0 , 0 , 0 );
-            } 
-            }                           
-                                
+            
+                if (countdown[face]) {
+                    countdown[face]--;
+                } else {
+                    setPixelRGB( face , 0 , 0 , 0 );
+                } 
+            }     
+            
+        }                                                                  
     }        
     
 	showEffects();
