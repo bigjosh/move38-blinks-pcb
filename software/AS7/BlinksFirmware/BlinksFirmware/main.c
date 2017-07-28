@@ -1032,7 +1032,7 @@ int main(void)
         
         for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
             
-            irled_TX_value[face] = 0x71;
+            irled_TX_value[face] = 0x01;
         
             uint8_t value = irled_RX_value[face];
         
@@ -1048,7 +1048,7 @@ int main(void)
                     
                 }                                        
                 irled_RX_value[face] = 0;
-                countdown[face]=100;                        
+                countdown[face]=50;                        
                 
             } else {
             

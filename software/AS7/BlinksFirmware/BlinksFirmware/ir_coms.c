@@ -388,7 +388,7 @@ void ir_isr(void)
             //DEBUGB_PULSE(200);
         }                        
         
-        //if (currentSample) irled_RX_value[led] = 0x01;  //TODO: TEST
+        if (currentSample) irled_RX_value[led] = 0x01;  //TODO: TEST
         
         if (irled_RX_state[led]== IR_RX_WAITING) {
                         
