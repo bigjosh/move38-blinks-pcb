@@ -204,9 +204,19 @@ void setupTimers(void) {
         _BV( COM0B1)                        // Clear OC0B on Compare Match, set OC0B at BOTTOM, (non-inverting mode)
     ;
            
+    /*           
+           
     TCCR0B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
-        _BV( CS01 );                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0
+        _BV( CS01 );                        // clkI/O/8 (From prescaler)- 256us period= ~4Khz. This line also turns on the Timer0
                                                 
+    
+    
+    */
+
+
+    TCCR0B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
+        _BV( CS00 );                        // clkI/O/1 (From prescaler)- ~ This line also turns on the Timer0
+    
     
     
     TIMSK0 = _BV( TOIE0 );                  // The corresponding interrupt is executed if an overflow in Timer/Counter0 occurs
@@ -279,7 +289,7 @@ void commonActivate( uint8_t line ) {
     
 }
 
-void commonDeactivate( uint8_t line ) {           // Also deactivates previous
+static void commonDeactivate( uint8_t line ) {           // Also deactivates previous
     
         switch (line) {
             
@@ -311,8 +321,12 @@ void commonDeactivate( uint8_t line ) {           // Also deactivates previous
 
 }
 
-uint8_t readVccX10(void) {              // Return Vcc x10 
-	
+
+ // Set up adc to read Vcc
+ // https://wp.josh.com/2014/11/06/battery-fuel-guage-with-zero-parts-and-zero-pins-on-avr/
+ 
+void adc_init(void) {
+    
     ADMUX = 
         _BV(REFS0)  |                                  // Reference AVcc voltage
         _BV( ADLAR ) |                                 // Left adjust result so only one 8 bit read of the high register needed
@@ -320,16 +334,33 @@ uint8_t readVccX10(void) {              // Return Vcc x10
      ;
        
      ADCSRA = 
-        _BV( ADEN )  |                  // Enable ADC
-        _BV( ADSC )                     // Start a conversion
-     ;
+        _BV( ADEN )  |                   // Enable ADC
+        _BV( ADSC )   |                  // Start a conversion
+        _BV( ADPS1 ) | _BV( ADPS0)      // /8 prescaler, gives ADC clock of 1Mhz/8 = 125Khz - the exact recommended speed.
+         ;
      
-     
-      while (TBI(ADCSRA,ADSC)) ;       // Wait for conversion to complete
-      
+    
+      while (TBI(ADCSRA,ADSC)) ;       // Wait for 1st conversion to complete
+
+    SBI( ADCSRA , ADSC);                // Kick off 1st real conversion (the initial one is noisy)
+
+    
+}
+
+// Returns the previous conversion result and starts a new conversion.
+// ADC clock running at /8 prescaller and conversion takes 14 cycles, so don't call more often than once per
+// 112 microseconds
+
+
+uint8_t adc_readVccX10(void) {              // Return Vcc x10 
+    
+    uint8_t lastReading = (11 / ADCH);          // Remember the result from the last reading. 
+	       
+    SBI( ADCSRA , ADSC);                // Start next conversion, will complete silently in 14 cycles
+               
 	  // TODO: We can save time waiting if we read whatever the result form the last conversion is and then blindly kick-off a new one...
 	  
-      return( 11 / ADCH  );
+      return( lastReading  );
     
 }
 
@@ -345,7 +376,7 @@ volatile uint8_t vccAboveBlueFlag=0;        // Is the battery voltage higher tha
 #define BLUE_LED_THRESHOLD_V 2.6
 
 void updateVccFlag(void) {                  // Set the flag based on ADC check of the battery voltage. Don't have to do more than once per minute.
-	vccAboveBlueFlag = (readVccX10() > BLUE_LED_THRESHOLD_V);	
+	vccAboveBlueFlag = (adc_readVccX10() > BLUE_LED_THRESHOLD_V);	
 	vccAboveBlueFlag = 1;	
 }
 
@@ -384,33 +415,21 @@ void tick(void) {
 }
                                    
 
-volatile uint8_t previousPixel;     // Which pixel was lit on last pass?
-                                    // Note that on startup this is not technically true, so we will unnecessarily but benignly deactivate pixel 0
-                                
-// Called when Timer0 overflows, which happens at the end of the PWM cycle for each pixel. We advance to the next pixel.
+                                    
+// Update the RGB pixels.
+// Call at ~500Khz    
 
-// Non-intuitive sequencing!
-// Because the timer only latches the values in the OCR registers when at the moment this ISR fires, by the time we are running
-// it is already lateched the *previous* values and they are currently being used. That means that right now we need to...
-//
-// 1. Activate the common line for the values that were previously latched.
-// 2. Load the values into OCRs to be latched when this cycle completes.
-//
-// You'd think we could just offset the raw values by one, but that doesn't work because the boost enable must match 
-// the values currently being displayed. 
-//
-// Note that we have plenty of time to do stuff once the boost enable is updated for the
-// values for the currently displayed pixel (the last loaded OCR values), because we have arranged things so that LEDs
-// are always *off* for the 1st half of the cycle. 
+// TODO: Move to new source file, make function inline?                  
+                                    
+void pixel_isr(void) {   
 
-// This fires every 2ms (500hz)
 
-ISR(TIMER0_OVF_vect)
-{
-           
-    //ir_isr();         // Max latency of pulse detect is 140us. 
-		
+    static uint8_t previousPixel;     // Which pixel was lit on last pass?
+                                      // Note that on startup this is not technically true, so we will unnecessarily but benignly deactivate pixel 0
+    
+    
     commonDeactivate( previousPixel );
+
 
     SBI( BLUE_SINK_PORT , BLUE_SINK_BIT);       // Faster to just blindly disable SINK without even checking if it is currently on
                                                 // Remember, this is a SINK so setting HIGH disables it.
@@ -442,10 +461,17 @@ ISR(TIMER0_OVF_vect)
 	
     if (1|| vccAboveBlueFlag) {
         /// TODO: TESTING BLUE HIGH VOLTAGE
-        uint8_t d= 255-rawValueB[currentPixel];
+        
+        // TODO: This takes too long! Do it in the background!
+        // TODO: We are capping the blue brightness here to make sure this does not exceed phase timeslot allowed just so we can get IR working.
+
+//        uint8_t d=  255-rawValueB[currentPixel];     // TODO: Currect code but too slow
+
+        uint8_t d= 64-(rawValueB[currentPixel]/4);     // TODO: Fix This!
+
     
         while (d--) {
-            _delay_us(1);
+           //_delay_us(1);
         }
     
     
@@ -455,6 +481,7 @@ ISR(TIMER0_OVF_vect)
         SBI(BLUE_SINK_PORT,BLUE_SINK_BIT);      // TODO: TESTING BLUE HIGH VOLTAGE
 	}
     
+   // return;
      
     // Ok, current pixel is now ready to display when the OCRs match the timer during this pass.
     
@@ -492,7 +519,62 @@ ISR(TIMER0_OVF_vect)
     
     previousPixel = currentPixel;
     
-	//tick(); 
+	//tick(); // TODO: No Vcc compensation yet
+
+} 
+                                
+// Called when Timer0 overflows, which happens at the end of the PWM cycle for each pixel. We advance to the next pixel.
+
+// Non-intuitive sequencing!
+// Because the timer only latches the values in the OCR registers when at the moment this ISR fires, by the time we are running
+// it is already lateched the *previous* values and they are currently being used. That means that right now we need to...
+//
+// 1. Activate the common line for the values that were previously latched.
+// 2. Load the values into OCRs to be latched when this cycle completes.
+//
+// You'd think we could just offset the raw values by one, but that doesn't work because the boost enable must match 
+// the values currently being displayed. 
+//
+// Note that we have plenty of time to do stuff once the boost enable is updated for the
+// values for the currently displayed pixel (the last loaded OCR values), because we have arranged things so that LEDs
+// are always *off* for the 1st half of the cycle. 
+
+// This fires every 256us (~4Khz)
+// No phase should take longer than 256us or else it will run into the next phase's time slot and add jitter
+
+// If you need to do somethign that takes longer, then pick a phase with an enpty phase after it and make sure you
+// take less than 2 phases to finish. 
+// If a phase takes longer than 512us, then we will miss an overflow and everything will get really messed. 
+
+
+
+ISR(TIMER0_OVF_vect)
+{
+    
+    DEBUGB_1();
+    static uint8_t phase=0;         // Dither the firings so we can get more done in shorter intervals
+    
+    // Display LEDs run at ~2ms cycle time, so every even 8th fire...
+    
+    phase++;
+    
+    // 8 phases, each called once per ~2ms with 256us between them.
+        
+    
+    if ((phase & 0x07)==0x00) {     
+        
+        pixel_isr();
+        
+    } else if (phase & 0x01) {      // Trigger every other phase, so every 512us
+
+        //ir_isr();
+        
+    }                
+    
+           
+    //ir_isr();         // Max latency of pulse detect is 140us. 
+		
+    DEBUGB_0();
 	
 }
 
@@ -1001,6 +1083,8 @@ void showEffects() {
 int main(void)
 {
     DEBUG_INIT();
+    
+    adc_init();         // Init ADC to start measuring battery voltage
     
     //ir_init();
     

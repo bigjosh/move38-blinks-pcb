@@ -143,10 +143,13 @@ volatile uint8_t irled_TX_value[IRLED_COUNT];
 
 // TODO: Save a jump and ret by inlining this?  
 
+// Called every 512us, but must not take more than 256us or it will clobber other backround ISRs
+
 void ir_isr(void)
 {	
     
     DEBUGA_1();
+    
     // bitstream  keeps track of the most recently received fixed time slices for each LED 
     // LEDs are checked for pulses at fixed time intervals in this ISR. 
     
