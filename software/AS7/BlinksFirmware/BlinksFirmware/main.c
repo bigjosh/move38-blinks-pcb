@@ -1031,14 +1031,24 @@ int main(void)
     while (1) {
         
         for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
+            
+            irled_TX_value[face] = 0x71;
         
             uint8_t value = irled_RX_value[face];
         
             if ( value ) {
                 
-                setPixelRGB( face , 0 , 255 , 0 );
+                if (value >= 0x01 ) {
+                
+                    setPixelRGB( face , 0 , 255 , 0 );
+                    
+                } else {
+                    
+                    setPixelRGB( face , 255 , 0 , 0);
+                    
+                }                                        
                 irled_RX_value[face] = 0;
-                countdown[face]=200;                        
+                countdown[face]=100;                        
                 
             } else {
             
