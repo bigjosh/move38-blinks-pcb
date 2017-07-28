@@ -408,7 +408,7 @@ volatile uint8_t previousPixel;     // Which pixel was lit on last pass?
 ISR(TIMER0_OVF_vect)
 {
            
-    ir_isr();         // Max latency of pulse detect is 140us. 
+    //ir_isr();         // Max latency of pulse detect is 140us. 
 		
     commonDeactivate( previousPixel );
 
@@ -1002,7 +1002,7 @@ int main(void)
 {
     DEBUG_INIT();
     
-    ir_init();
+    //ir_init();
     
     setupTimers();
     
@@ -1028,7 +1028,7 @@ int main(void)
 	
     uint16_t countdown[FACE_COUNT];
     
-    while (1) {
+    while (0) {
         
         for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
             
