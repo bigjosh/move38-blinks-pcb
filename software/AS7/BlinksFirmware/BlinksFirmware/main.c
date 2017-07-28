@@ -429,9 +429,12 @@ void pixel_isr(void) {
     
     
     commonDeactivate( previousPixel );
+    
+    // TODO: Change BLUE in a different phase maybe?
 
 
-    SBI( BLUE_SINK_PORT , BLUE_SINK_BIT);       // Faster to just blindly disable SINK without even checking if it is currently on
+    SBI( BLUE_SINK_PORT , BLUE_SINK_BIT);       
+                                                // Faster to just blindly disable SINK without even checking if it is currently on
                                                 // Remember, this is a SINK so setting HIGH disables it.
 
     uint8_t currentPixel = previousPixel+1;
@@ -459,7 +462,7 @@ void pixel_isr(void) {
 	// TODO: This could be much finer to pick for each brightness level what the most efficient drive would be at the current Vcc
 	// TODO: THis is just a hack to get dimming working on BLUE. New rev will have better charge pump hardware to make this better. 
 	
-    if (1|| vccAboveBlueFlag) {
+    if ( 0 && vccAboveBlueFlag) {           // TODO: Driving blue directly for now yo avoid using up timeslice!
         /// TODO: TESTING BLUE HIGH VOLTAGE
         
         // TODO: This takes too long! Do it in the background!
