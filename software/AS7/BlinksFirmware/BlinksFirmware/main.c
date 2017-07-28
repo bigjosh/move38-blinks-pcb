@@ -1021,7 +1021,7 @@ int main(void)
     }
     
     
-    setupTimers();
+//    setupTimers();
 	setupButton();
         
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
