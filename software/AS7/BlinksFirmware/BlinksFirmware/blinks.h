@@ -13,4 +13,6 @@
 
 #define FACE_COUNT 6               // Total number of IRLEDs 
 
+uint32_t timeNow(void);
+
 #endif /* BLINKS_H_ */

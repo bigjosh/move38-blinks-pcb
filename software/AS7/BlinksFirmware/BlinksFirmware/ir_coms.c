@@ -1,19 +1,100 @@
 /*
 
-    Talk to the 6 IR LEDs that are using for communication with adjecent tiles
+    Talk to the 6 IR LEDs that are using for communication with adjacent tiles
 
 */
 
+#include <avr/io.h>
+#include <avr/interrupt.h>
 
 #include "blinks.h"
 #include "hardware.h"
 
 
-#include <avr/interrupt.h>
 #include <util/delay.h>         // Must come after F_CPU definition
 
 #include "ir_comms.h"
 #include "utils.h"
+
+
+
+uint32_t irled_lastPulseTime[IRLED_COUNT];     
+
+
+// This gets called anytime one of the IR LED cathodes has a level change drops. This typically happens because some light 
+// hit it and discharged the capacitance, so the pin goes from high to low. We initialize each pin at high, and we charge it
+// back to high everything it drops low, so we should in practice only ever see high to low transitions here.
+
+// Note that there is also a background task that periodically recharges all the LEDs frequently enough that 
+// that they should only ever go low from a very bright source - like an IR led pointing right down their barrel. 
+
+ISR(IR_ISR)
+{	
+return;
+    DEBUGA_1();                
+
+    uint32_t now = timeNow();
+               
+    // Capture the current time
+    
+    //uint8_t now = TIMER_NOW();
+    
+    // Find out which IR LED(s) went low to trigger this interrupt
+            
+    uint8_t ir_LED_triggered_bits = (~IR_CATHODE_PIN) & IR_BITS;      // A 1 means that LED triggered
+    
+    PCMSK1 &= ~ir_LED_triggered_bits;                                 // stop Triggering interrupts on these pins because they are going to change when we charge them
+    
+    // charge up receiver cathode pins while keeping other pins intact
+           
+    // This will enable the pull-ups on the LEDs we want to change without impacting other pins
+    // The other pins will stay whatever they were.
+    
+    // NOTE: We are doing something tricky here. Writing a 1 to a PIN bit actually toggles the PORT bit. 
+    // This saves about 10 instructions to manually load, or, and write back the bits to the PORT. 
+    
+    
+    /*
+        19.2.2. Toggling the Pin
+        Writing a '1' to PINxn toggles the value of PORTxn, independent on the value of DDRxn. 
+    */
+    
+    IR_CATHODE_PIN =  ir_LED_triggered_bits;
+    
+    // Only takes a tiny bit of time to charge up the cathode, even though the pull-up so no extra delay needed here...
+    
+
+    PCMSK1 |= ir_LED_triggered_bits;    // Re-enable pin change on the pins we just charged up
+                                        // Note that we must do this while we know the pins are still high
+                                        // or there might be a *tiny* race condition if the pin changed in the cycle right after
+                                        // we finished charging but before we enabled interrupts. This would latch until the next 
+                                        // recharge timeout.
+                                            
+    // Stop charging LED cathode pins (toggle the triggered bits back to what they were)
+    
+    IR_CATHODE_PIN = ir_LED_triggered_bits;     
+                
+    //ir_tx_pulse( LED_BIT(5) );          // Blink D5
+        
+    //_delay_ms(30);
+    
+    for( uint8_t led=0; led<IRLED_COUNT; led++ ) {
+        
+        if ( TBI( ir_LED_triggered_bits , led ) ) {
+            
+            irled_lastPulseTime[led] = now;
+            
+        }            
+        
+    }        
+
+    DEBUGA_0();   
+    
+    // If any LED pin changed while we were in this ISR, then we will get called again
+    // as soon as we return and interrupts are enabled again.      
+        
+}
+
 
 
 // Send a pulse on all LEDs that have a 1 in bitmask
@@ -145,7 +226,7 @@ volatile uint8_t irled_TX_value[IRLED_COUNT];
 
 void ir_isr(void)
 {	
-    
+    return;
     DEBUGA_1();
     // bitstream  keeps track of the most recently received fixed time slices for each LED 
     // LEDs are checked for pulses at fixed time intervals in this ISR. 
@@ -541,7 +622,18 @@ void ir_init(void) {
   // Leave cathodes DDR in input mode. When we write to PORT, then we will be enabling pull-up which is enough to charge the 
   // LEDs and saves having to switch DDR every charge. 
   
-  // Initial charge up of cathodes will happen first time ISR is called. 
+  // Initial charge up of cathodes
+  
+  IR_CATHODE_PORT |= IR_BITS;
+ 
+  // Pin change interrupt setup
+  IR_MASK = IR_PCINT;             // Enable pin in Pin Change Mask Register for all 6 cathode pins. Any chyange after this will set the pending interrupt flag.
+  SBI( PCICR , IR_PCI );          // Enable the pin group
+
+  // Stop charging  
+  IR_CATHODE_PORT &= ~IR_BITS;
+  
+    
       
 }
 

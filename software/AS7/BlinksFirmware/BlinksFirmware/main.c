@@ -5,7 +5,6 @@
  * Author : josh.com
  */ 
 
-#include "blinks.h"
 
 #include <avr/io.h>
 #include <avr/sleep.h>
@@ -15,6 +14,7 @@
 #include <math.h>
 #include <stdlib.h>                 // rand()
 
+#include "blinks.h"
 
 #include <util/delay.h>         // Must come after F_CPU definition
 
@@ -382,6 +382,34 @@ void tick(void) {
 	}
 	
 }
+
+// This should be good for 9 hours run time. 
+
+static uint32_t timeNowOverFlowCount=0;
+
+// For now only call from interrupt off context
+// TODO: turn of INTS while grabbing count so ISR can but in
+
+uint32_t timeNow(void) {
+    
+    uint8_t timerCount;
+    uint8_t timerStat;
+    
+    do {
+        timerCount=TCNT0;
+        timerStat =TIFR0;
+    } while (timerCount==TCNT0);        
+    
+    uint8_t missedOverflowAdjust = 0;
+    
+    if (TBI( timerStat , TOV0 )) {
+        missedOverflowAdjust = 1;               // Account for an overflow that happened but not reflected in the master count.
+    }        
+        
+        
+    return( (timeNowOverFlowCount + missedOverflowAdjust) *256) + timerCount;
+    
+}    
                                    
 
 volatile uint8_t previousPixel;     // Which pixel was lit on last pass?
@@ -407,8 +435,10 @@ volatile uint8_t previousPixel;     // Which pixel was lit on last pass?
 
 ISR(TIMER0_OVF_vect)
 {
+    
+    //timeNowOverFlowCount++;
            
-    ir_isr();         // Max latency of pulse detect is 140us. 
+    //ir_isr();         // Max latency of pulse detect is 140us. 
 		
     commonDeactivate( previousPixel );
 
@@ -1002,7 +1032,7 @@ int main(void)
 {
     DEBUG_INIT();
     
-    ir_init();
+    //ir_init();
     
     setupTimers();
     
@@ -1028,7 +1058,7 @@ int main(void)
 	
     uint16_t countdown[FACE_COUNT];
     
-    while (1) {
+    while (0) {
         
         for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
             
