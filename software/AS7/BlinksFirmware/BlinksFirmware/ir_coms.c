@@ -145,7 +145,7 @@ volatile uint8_t irled_TX_value[IRLED_COUNT];
 
 // Called every 512us, but must not take more than 256us or it will clobber other backround ISRs
 
-void ir_isr(void)
+void ir_rx_isr(void)
 {	
     
     DEBUGA_1();

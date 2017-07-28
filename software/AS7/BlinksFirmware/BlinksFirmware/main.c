@@ -556,24 +556,29 @@ ISR(TIMER0_OVF_vect)
     
     DEBUGB_1();
     static uint8_t phase=0;         // Dither the firings so we can get more done in shorter intervals
-    
-    // Display LEDs run at ~2ms cycle time, so every even 8th fire...
-    
+       
     phase++;
     
-    // 8 phases, each called once per ~2ms with 256us between them.
-        
+    // 8 phases, 256us between them.
     
-    if ((phase & 0x07)==0x00) {     
+    // TODO: Should display stuff come first?
+        
+    if (phase & 0x00000001) {                     // Trigger IR activity every odd phase (50% of the time), so every 512us
+        
+        if (phase & 0b00000010) {                // Alternate TX & RX on every other odd phase, so each gets called every ~1ms
+            
+            ir_rx_isr();
+            
+        } else {
+            
+        }                    
+           
+        
+    }  else if ((phase & 0x07)==0x00) {   // Update display on phase 0 (1/8th of the time), so every ~2ms 
         
         pixel_isr();
-        
-    } else if (phase & 0x01) {      // Trigger every other phase, so every 512us
-
-        //ir_isr();
-        
-    }                
-    
+              
+    }    
            
     //ir_isr();         // Max latency of pulse detect is 140us. 
 		
@@ -581,7 +586,7 @@ ISR(TIMER0_OVF_vect)
 	
 }
 
-// Gamma table curtsey of adafruit...
+// Gamma table curtsy of adafruit...
 //https://learn.adafruit.com/led-tricks-gamma-correction/the-quick-fix
 // TODO: Compress this down, we probably only need like 4 bits of resolution. 
 
