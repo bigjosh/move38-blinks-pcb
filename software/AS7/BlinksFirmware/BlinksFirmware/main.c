@@ -554,7 +554,7 @@ void pixel_isr(void) {
 ISR(TIMER0_OVF_vect)
 {
     
-    DEBUGB_1();
+    //DEBUGB_1();
     static uint8_t phase=0;         // Dither the firings so we can get more done in shorter intervals
        
     phase++;
@@ -562,26 +562,40 @@ ISR(TIMER0_OVF_vect)
     // 8 phases, 256us between them.
     
     // TODO: Should display stuff come first?
+    
+    // TODO: Is there a more elegant way to break out these bit tests? A case clearer, but probably would not figure out the odd phases as efficiently ?
         
-    if (phase & 0x00000001) {                     // Read IR LED input on every other (odd) phase - every 512us            
+    if (phase & 0x00000001) {                     // Read IR LED input on every other (1,3,5,7) phase - every 512us            
         
         ir_rx_isr();                      
         
     }  else {       // Even phases. Each of these gets called 1/8th of the time, so every 2048us. They must finish within 256us.
         
-        if ((phase & 0x07)==0x00) {   // Update display on phase 0 (1/8th of the time), so every ~2ms 
+        if ( (phase & 0b00000010) == 0) {           // Phase 0 (00000000) & 4 (00000100)- every 1024us
+            
+            if ( (phase & 0b00000100) ==0 ) {
+            
+                ir_tx_clk_isr();
+                
+            } else {
+                
+                ir_tx_data_isr();
+                                
+            }                                
+            
+        
+        } else if ((phase & 0x07)==0b00000010) {   // Update display on phase 2 (00000010) (1/8th of the time), so every ~2ms 
         
             pixel_isr();
             
-        } else if ( (phase & 0x07) == 0x02 ) {
+        } else if ( (phase & 0x07) == 0b00000110 ) {        // Extra phase 6, what for?!?
             
-            ir_tx_isr();
             
         }            
               
     }    
            
-    DEBUGB_0();
+    //DEBUGB_0();
 	
 }
 
@@ -1119,11 +1133,13 @@ int main(void)
 	
     uint16_t countdown[FACE_COUNT];
     
-    while (0) {
+    while (1) {
         
         for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
             
-            irled_TX_value[face] = 0x01;
+            irled_TX_value[face] = 0x8F;            ;
+            
+            /*
         
             uint8_t value = irled_RX_value[face];
         
@@ -1148,9 +1164,14 @@ int main(void)
                 } else {
                     setPixelRGB( face , 0 , 0 , 0 );
                 } 
-            }     
+            } 
             
-        }                                                                  
+            */
+                
+            
+        }   
+        
+        _delay_ms(500);                                                               
     }        
     
 	showEffects();

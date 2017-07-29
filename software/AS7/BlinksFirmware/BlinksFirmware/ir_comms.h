@@ -42,9 +42,15 @@ void blinkIr(void);
 
 // TODO: Maybe this should be a macro to save the overhead of calling a 2 instruction function.
 
-void ir_isr(void);
 
-void ir_tx_isr(void);
+// Called every 512us, but must not take more than 256us or it will clobber other background ISRs
+
+void ir_rx_isr(void);
+
+// Send IR data
+
+void ir_tx_clk_isr(void);
+void ir_tx_data_isr(void);
 
 
 
