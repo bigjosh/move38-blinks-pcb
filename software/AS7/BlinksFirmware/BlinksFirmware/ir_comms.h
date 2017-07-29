@@ -44,6 +44,10 @@ void blinkIr(void);
 
 void ir_isr(void);
 
+void ir_tx_isr(void);
+
+
+
 // Last received byte from corresponding IRLED
 // TODO: Buffer? Async notice?
 

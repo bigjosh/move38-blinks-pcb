@@ -545,7 +545,7 @@ void pixel_isr(void) {
 // This fires every 256us (~4Khz)
 // No phase should take longer than 256us or else it will run into the next phase's time slot and add jitter
 
-// If you need to do somethign that takes longer, then pick a phase with an enpty phase after it and make sure you
+// If you need to do something that takes longer, then pick a phase with an empty phase after it and make sure you
 // take less than 2 phases to finish. 
 // If a phase takes longer than 512us, then we will miss an overflow and everything will get really messed. 
 
@@ -563,16 +563,9 @@ ISR(TIMER0_OVF_vect)
     
     // TODO: Should display stuff come first?
         
-    if (phase & 0x00000001) {                     // Trigger IR activity every odd phase (50% of the time), so every 512us
+    if (phase & 0x00000001) {                     // Read IR LED input on every other (odd) phase - every 512us            
         
-        if (phase & 0b00000010) {                // Alternate TX & RX on every other odd phase, so each gets called every ~1ms
-            
-            ir_rx_isr();
-            
-        } else {
-            
-        }                    
-           
+        ir_rx_isr();                      
         
     }  else if ((phase & 0x07)==0x00) {   // Update display on phase 0 (1/8th of the time), so every ~2ms 
         
@@ -580,7 +573,7 @@ ISR(TIMER0_OVF_vect)
               
     }    
            
-    //ir_isr();         // Max latency of pulse detect is 140us. 
+   
 		
     DEBUGB_0();
 	
@@ -1094,7 +1087,7 @@ int main(void)
     
     adc_init();         // Init ADC to start measuring battery voltage
     
-    //ir_init();
+    ir_init();
     
     setupTimers();
     
