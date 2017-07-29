@@ -1,6 +1,17 @@
 /*
 
-    Talk to the 6 IR LEDs that are using for communication with adjecent tiles
+    Talk to the 6 IR LEDs that are using for communication with adjacent tiles
+
+
+    THEORY OF OPERATION
+    ===================
+    
+    All communication is 7 bits wide. This leaves us with an 8th bit to use as a canary bit to save needing any counters.
+    
+    Bytes are transmitted least significant bit first.
+    
+    MORE TO COME HERE NEED PICTURES. 
+
 
 */
 
@@ -43,19 +54,25 @@ void ir_tx_pulse( uint8_t bitmask ) {
     // when TX voltage is low and RX voltage is high?
     // Also replace with a #define and _delay_us() so works when clock changes?
 
-    DEBUGA_1();    
+    //DEBUGA_1();    
 
     //TODO: Optimize this to be exact minimum for the distance in the real physical object
-
-    asm("nop");
-    asm("nop");
-    asm("nop");
-    asm("nop");
-    asm("nop");
-    asm("nop");
-    asm("nop");
     
-    DEBUGA_0();
+    // Currently chosen empirically to work with some tile cases Jon made 7/28/17
+
+    _delay_us(10);
+    
+    /*
+    asm("nop");
+    asm("nop");
+    asm("nop");
+    asm("nop");
+    asm("nop");
+    asm("nop");
+    asm("nop");
+    */
+    
+    //DEBUGA_0();
                 
     IR_ANODE_PIN  = bitmask;    // Un-Blink! Sets anodes back to low (still output)      (Remember, a write to PIN actually toggles PORT)
 
@@ -218,15 +235,13 @@ void ir_tx_clk_isr(void) {
     
 }    
 
-
-
 // Send IR data
 // Wow, this ended up being clean code. Must be doing it right!
 
 void ir_tx_data_isr(void) {
     
     
-    DEBUGB_1();
+    //DEBUGB_1();
     
     uint8_t outgoingPulses=0;                   // Build up which faces are going to see an outgoing pulse on this timeslot
     
@@ -251,7 +266,7 @@ void ir_tx_data_isr(void) {
     ir_tx_pulse( outgoingPulses );
 
     //DEBUGA_0();
-    DEBUGB_0();
+    //DEBUGB_0();
     
     return;
     
@@ -283,6 +298,7 @@ volatile uint8_t irled_RX_value[IRLED_COUNT];
 void ir_rx_isr(void)
 {	
     
+    DEBUGA_1();
     static uint8_t bitwindow[IRLED_COUNT];      // A sliding window of last 8 samples received
     static uint8_t bytebuffer[IRLED_COUNT];     // Bits get shifted into here to build bytes. Every byte starts with a 1 in the high bit.
         
@@ -316,12 +332,9 @@ void ir_rx_isr(void)
         
     if ( currentSample ) {
             
-        DEBUGA_PULSE(10);
+        DEBUGB_PULSE(20);
             
-    } else {
-            
-        DEBUGA_PULSE(7);
-    }          
+    } 
     
     // work out way though decoding the samples 
     
@@ -330,6 +343,7 @@ void ir_rx_isr(void)
     for(uint8_t led=0; led<IRLED_COUNT; led++) {
         
     }                      
+    DEBUGA_0();
 
     return;
     

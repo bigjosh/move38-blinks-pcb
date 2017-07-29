@@ -590,8 +590,9 @@ ISR(TIMER0_OVF_vect)
             
         } else if ( (phase & 0x07) == 0b00000110 ) {        // Extra phase 6, what for?!?
             
+                   
             
-        }            
+        } 
               
     }    
            
@@ -1137,7 +1138,7 @@ int main(void)
         
         for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
             
-            irled_TX_value[face] = 0x8F;            ;
+            irled_TX_value[face] = 0x85;          
             
             /*
         
