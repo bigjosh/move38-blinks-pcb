@@ -24,7 +24,7 @@
 // TODO: Queue TX so they only happen after a successful RX or idle time. Unnecessary since TX time so short?
 
 
-void ir_tx_pulse( uint8_t bitmask ) {
+void ir_tx_pulse_obs( uint8_t bitmask ) {
 
     // ANODE always driven
 
@@ -344,6 +344,12 @@ void ir_isr(void)
             asm("nop");
             asm("nop");
             
+
+            asm("nop");
+            asm("nop");
+            asm("nop");
+            asm("nop");
+
         
             IR_ANODE_PIN    = ledbitmask;         // back to driving anode low (default state)
         
