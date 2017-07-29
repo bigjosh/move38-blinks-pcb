@@ -567,14 +567,20 @@ ISR(TIMER0_OVF_vect)
         
         ir_rx_isr();                      
         
-    }  else if ((phase & 0x07)==0x00) {   // Update display on phase 0 (1/8th of the time), so every ~2ms 
+    }  else {       // Even phases. Each of these gets called 1/8th of the time, so every 2048us. They must finish within 256us.
         
-        pixel_isr();
+        if ((phase & 0x07)==0x00) {   // Update display on phase 0 (1/8th of the time), so every ~2ms 
+        
+            pixel_isr();
+            
+        } else if ( (phase & 0x07) == 0x02 ) {
+            
+            ir_tx_isr();
+            
+        }            
               
     }    
            
-   
-		
     DEBUGB_0();
 	
 }
