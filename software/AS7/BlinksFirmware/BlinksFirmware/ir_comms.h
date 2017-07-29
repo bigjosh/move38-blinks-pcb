@@ -47,6 +47,14 @@ void blinkIr(void);
 
 void ir_rx_isr(void);
 
+
+// The RX API...
+
+volatile uint8_t irled_RX_value[IRLED_COUNT];   // MSB set indicates data here (data is bottom 7 bits). Set high bit to zero after reading to clear the way for next byte.
+volatile uint8_t irled_rx_error;        // There was an invalid pulse pattern on the indicated face
+volatile uint8_t irled_rx_overflow;     // The value[] buffer was not empty when a new byte was received
+
+
 // Send IR data
 
 void ir_tx_clk_isr(void);
@@ -57,8 +65,6 @@ void ir_tx_data_isr(void);
 // Last received byte from corresponding IRLED
 // TODO: Buffer? Async notice?
 
-// You can set this to a special value never sent if you want to detect neighbors.
-volatile uint8_t irled_RX_value[IRLED_COUNT];
 
 // This value is continuously sent on the corresponding face
 volatile uint8_t irled_TX_value[IRLED_COUNT];

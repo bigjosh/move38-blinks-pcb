@@ -291,6 +291,9 @@ void ir_tx_data_isr(void) {
 
 volatile uint8_t irled_RX_value[IRLED_COUNT];  
 
+volatile uint8_t irled_rx_error;        // There was an invalid pulse pattern on the indicated face
+volatile uint8_t irled_rx_overflow;     // The value[] buffer was not empty when a new byte was recieved
+
 // TODO: Save a JMP and RET by inlining this?  
 
 // Called every 512us, but must not take more than 256us or it will clobber other background ISRs
@@ -298,9 +301,12 @@ volatile uint8_t irled_RX_value[IRLED_COUNT];
 void ir_rx_isr(void)
 {	
     
-    DEBUGA_1();
-    static uint8_t bitwindow[IRLED_COUNT];      // A sliding window of last 8 samples received
+    //DEBUGA_1();
+    static uint8_t bitwindow[IRLED_COUNT];      // A sliding window of last 8 samples received. Most recent sample in LSB.
     static uint8_t bytebuffer[IRLED_COUNT];     // Bits get shifted into here to build bytes. Every byte starts with a 1 in the high bit.
+                                                // As soon as a byte is decoded, we copy it into values[] to share it with the foreground.
+                                                // We keep the MSB of the buffer set to show that we are waiting for an idle 
+                                                // period (8 empty sample windows in a row) to start decoding again. 
         
     uint8_t ir_LED_PIN_sample = IR_CATHODE_PIN;      // Quickly sample the PIN (we will work the bits later)
     
@@ -328,22 +334,122 @@ void ir_rx_isr(void)
     IR_CATHODE_PIN =  IR_BITS;
         
                 
-    uint8_t currentSample = !( ir_LED_PIN_sample & 0x01 );           // recent sample (NOT because a pulse discharges LED)
-        
-    if ( currentSample ) {
-            
-        DEBUGB_PULSE(20);
-            
-    } 
+    uint8_t currentSample = ~ir_LED_PIN_sample;           // recent sample (NOT because a pulse discharges LED)
     
+    if ( (currentSample & 0x01)) {
+        DEBUGA_PULSE(2);
+    }         
+            
     // work out way though decoding the samples 
     
     // TODO: invert or use a bitslide to make more efficient
     
+    // Here we unpack the sample that has 1 bit per face into the moving windows for each face
+    
     for(uint8_t led=0; led<IRLED_COUNT; led++) {
         
+        bitwindow[led] <<= 1;           // Make room for new sample
+        
+        bitwindow[led] |= (currentSample & 0b00000001);      // Grab received sample for ths face
+        
+        currentSample >>=1;                                 // Shift down the sample so low bit is new face for next pass
+        
+        // OK, so the bit window now has the current sample and the past 7 samples in it.
+        // Now we will check if these sames make a valid bit pattern
+        // This is complicated because there is clock drift between the TX and RX sides so a pulse
+        // can land in an adjacent position to the expected one. 
+        
+        // We only care about the bottom 6 positions of the window for decoding bits. The two higher ones will be the left over from a perviously decoded bit
+        // One bit is a leading clock pulse, the presence or absence of a pulse for date, and then the trailing clock pulse.
+        // (The final data bit in a byte has an extra trailing clock pulse)
+        
+        // We stipulate that the leading clock will be window position #5 and then look at all the other lower window positions to
+        // to see if they could make a 
+        
+        // First check if we just saw an idle period so we should start decoding...
+        
+        if (bitwindow[led] == 0b00000000 ) {
+            
+            bytebuffer[led] = 0x01;        // This clears the MSB of the buffer, and resets us to the first bit, so we are ready to receive
+            
+        } else {   
+            
+            if (bytebuffer[led] !=0 ) {      // Are we currently decoding? (If not, ignore everything except the idle reset above)
+                                
+                if ( bitwindow[led] & 0b00100000 ) {            // Did we get a clock pulse? If so, try to decode a bit!
+                
+                
+                    if (      ( bitwindow[led] & 0b00100001 ) == 0b00100001 ) {      // C00D0C - TX clock slower
+                    
+                        bytebuffer[led] <<=1;                                 // make room for new bit in byte buffer
+                        bytebuffer[led] |= ( bitwindow[led] >> 2 & 0x01);     // Extract and save data bit 
+                            
+                        bitwindow[led] = 0b00000001;                          // Save the tailing clock to be leading clock next time
+                        
+                        DEBUGB_PULSE(5);
+                    
+                    } else if ( ( bitwindow[led] & 0b00110111 ) == 0b00100010 ) {      // C0D0C0 - TX clock matches
+                    
+                        bytebuffer[led] <<=1;                                 // make room for new bit in byte buffer
+                        bytebuffer[led] |= ( bitwindow[led] >> 3 & 0x01);     // Extract and save data bit 
+                            
+                        bitwindow[led] = 0b00000010;                          // Save the tailing clock to be leading clock next time                    
+                        DEBUGB_PULSE(10);
+
+
+                    } else if ( (bitwindow[led] & 0b00100110 ) == 0b00100100 ) {      // CD0C0X - TX clock faster (X=dont' care because this is the following data bit)
+                    
+                        bytebuffer[led] <<=1;                                 // make room for new bit in byte buffer
+                        bytebuffer[led] |= ( bitwindow[led] >> 4 & 0x01);     // Extract and save data bit 
+                    
+                        bitwindow[led] = bitwindow[led] & 0b00000101;         // Save the tailing clock and data for next time    
+                        DEBUGB_PULSE(15);
+                    
+                    } else {
+                    
+                        // Pulses do not match any possible sent patterns, so must be noise error
+                                            
+                        // If we get here then there was a noisy pulse pattern, so all bets are off
+                        // We should start looking for a start bit again (which is preceded by idle)
+                            
+                        irled_rx_error |= _BV( led );       // Tell foreground
+                            
+                        bytebuffer[led] = 0x00;     // We will not start decoding again until an idle
+                        DEBUGB_PULSE(20);
+                        
+                    }
+                    
+                    
+                    if (bytebuffer[led] & 0x80) {       // Have we decoded a full byte?!?
+                        
+                        // Note that to get here, we had to have successfully decoded 7 consecutive bits with valid patterns,
+                        // which adds some filtering.
+                        
+                        if (irled_RX_value[led] == 0 )  {   // Is the incoming buffer free?
+                            
+                            irled_RX_value[led] = bytebuffer[led];  // Send to foreground!
+                            
+                        } else {
+                            
+                            irled_rx_overflow |= _BV( led );       // Tell foreground they are too damn slow!
+
+                        }
+                        
+                        bytebuffer[led] = 0x00;         // Start hunting for an idle to receive next byte!                                                                                
+                        
+                        DEBUGB_PULSE(30);
+                        
+                                                                                                  
+                    }                                                       
+                
+                }                                       
+                                                        
+            }                                
+            
+        }            
+                       
     }                      
-    DEBUGA_0();
+    //DEBUGA_0();
 
     return;
     
