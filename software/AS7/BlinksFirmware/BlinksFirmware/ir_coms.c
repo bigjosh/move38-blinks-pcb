@@ -294,20 +294,46 @@ volatile uint8_t irled_RX_value[IRLED_COUNT];
 volatile uint8_t irled_rx_error;        // There was an invalid pulse pattern on the indicated face
 volatile uint8_t irled_rx_overflow;     // The value[] buffer was not empty when a new byte was recieved
 
+
+struct tx_state_struct {
+    uint8_t bitwindow;          // A sliding window of last 8 samples received. Most recent sample in LSB.
+    uint8_t bytebuffer;         // Bits get shifted into here to build bytes. Every byte starts with a 1 in the high bit.
+                                // As soon as a byte is decoded, we copy it into values[] to share it with the foreground.
+                                // When bytebuffer is 0, then we are waiting for an idle to set it to 0x01 so we we start decoding
+
+};    
+
+/*
+
+    TIMING:
+    
+    Just straight static uint8_t arrays for bitwindow and bytebuffer takes 312us per pass.
+    Array of structs each with the two uints inside takes 220us per pass.
+    Array of structs with a pointer that steps though them each iteration take 132us per pass. Wow gcc, you really make me do this?
+
+*/
+
+
 // TODO: Save a JMP and RET by inlining this?  
 
 // Called every 512us, but must not take more than 256us or it will clobber other background ISRs
+// WARNING: IF you modify this code, you MUST make sure it ALWAYS completes in less than ~230us or else things will get unpredicible. 
+
+static struct tx_state_struct tx_state[IRLED_COUNT];
+
 
 void ir_rx_isr(void)
 {	
-    
+
     //DEBUGA_1();
-    static uint8_t bitwindow[IRLED_COUNT];      // A sliding window of last 8 samples received. Most recent sample in LSB.
-    static uint8_t bytebuffer[IRLED_COUNT];     // Bits get shifted into here to build bytes. Every byte starts with a 1 in the high bit.
-                                                // As soon as a byte is decoded, we copy it into values[] to share it with the foreground.
-                                                // We keep the MSB of the buffer set to show that we are waiting for an idle 
-                                                // period (8 empty sample windows in a row) to start decoding again. 
-        
+    
+    /*
+    static uint8_t bitwindow[IRLED_COUNT];      /
+    static uint8_t bytebuffer[IRLED_COUNT];     
+
+    */
+    
+    
     uint8_t ir_LED_PIN_sample = IR_CATHODE_PIN;      // Quickly sample the PIN (we will work the bits later)
     
     // charge up receiver cathode pin while keeping other pins intact
@@ -336,9 +362,15 @@ void ir_rx_isr(void)
                 
     uint8_t currentSample = ~ir_LED_PIN_sample;           // recent sample (NOT because a pulse discharges LED)
     
+    
     if ( (currentSample & 0x01)) {
-        DEBUGA_PULSE(2);
-    }         
+        //DEBUGA_PULSE(20);
+    } else {
+        
+    } 
+    
+        //DEBUGA_PULSE(2);
+                   
             
     // work out way though decoding the samples 
     
@@ -346,11 +378,26 @@ void ir_rx_isr(void)
     
     // Here we unpack the sample that has 1 bit per face into the moving windows for each face
     
+
+    //DEBUGA_1();        
+
+    static struct tx_state_struct *current_tx_state = tx_state; 
+    
+        
     for(uint8_t led=0; led<IRLED_COUNT; led++) {
         
-        bitwindow[led] <<= 1;           // Make room for new sample
+        /*
+        uint8_t currentBitwindow = tx_state[led].bitwindow;                  // Wow, the compiler really needs us to make a local copy here for else big and slow code.
+        uint8_t currentBytebuffer = tx_state[led].bytebuffer;                // Yet this one does not seem to matter
+        */
+
+        uint8_t currentBitwindow = current_tx_state->bitwindow;                  // Wow, the compiler really needs us to make a local copy here for else big and slow code.
+        uint8_t currentBytebuffer = current_tx_state->bytebuffer;                // Yet this one does not seem to matter
+
         
-        bitwindow[led] |= (currentSample & 0b00000001);      // Grab received sample for ths face
+        currentBitwindow <<= 1;           // Make room for new sample
+        
+        currentBitwindow |= (currentSample & 0b00000001);      // Grab received sample for ths face
         
         currentSample >>=1;                                 // Shift down the sample so low bit is new face for next pass
         
@@ -368,42 +415,48 @@ void ir_rx_isr(void)
         
         // First check if we just saw an idle period so we should start decoding...
         
-        if (bitwindow[led] == 0b00000000 ) {
+        if (currentBitwindow == 0b00000000 ) {
             
-            bytebuffer[led] = 0x01;        // This clears the MSB of the buffer, and resets us to the first bit, so we are ready to receive
+            currentBytebuffer = 0x01;        // This clears the MSB of the buffer, and resets us to the first bit, so we are ready to receive
             
         } else {   
             
-            if (bytebuffer[led] !=0 ) {      // Are we currently decoding? (If not, ignore everything except the idle reset above)
+            if (currentBytebuffer !=0 ) {      // Are we currently decoding? (If not, ignore everything except the idle reset above)
                                 
-                if ( bitwindow[led] & 0b00100000 ) {            // Did we get a clock pulse? If so, try to decode a bit!
+                if ( currentBitwindow & 0b00100000 ) {            // Did we get a clock pulse? If so, try to decode a bit!
                 
                 
-                    if (      ( bitwindow[led] & 0b00100001 ) == 0b00100001 ) {      // C00D0C - TX clock slower
+                    if (      ( currentBitwindow & 0b00100001 ) == 0b00100001 ) {      // C00D0C - TX clock slower
                     
-                        bytebuffer[led] <<=1;                                 // make room for new bit in byte buffer
-                        bytebuffer[led] |= ( bitwindow[led] >> 2 & 0x01);     // Extract and save data bit 
+                        currentBytebuffer <<=1;                                 // make room for new bit in byte buffer
+                        currentBytebuffer |= ( currentBitwindow>> 2 & 0x01);     // Extract and save data bit 
                             
-                        bitwindow[led] = 0b00000001;                          // Save the tailing clock to be leading clock next time
+                        currentBitwindow = 0b00000001;                          // Save the tailing clock to be leading clock next time                        
+                    
+                    } else if ( ( currentBitwindow & 0b00110111 ) == 0b00100010 ) {      // C0D0C0 - TX clock matches
+                    
+                        currentBytebuffer <<=1;                                 // make room for new bit in byte buffer
+                        currentBytebuffer |= ( currentBitwindow >> 3 & 0x01);     // Extract and save data bit 
+                            
+                        currentBitwindow = 0b00000010;                          // Save the tailing clock to be leading clock next time                    
                         
-                        DEBUGB_PULSE(5);
-                    
-                    } else if ( ( bitwindow[led] & 0b00110111 ) == 0b00100010 ) {      // C0D0C0 - TX clock matches
-                    
-                        bytebuffer[led] <<=1;                                 // make room for new bit in byte buffer
-                        bytebuffer[led] |= ( bitwindow[led] >> 3 & 0x01);     // Extract and save data bit 
-                            
-                        bitwindow[led] = 0b00000010;                          // Save the tailing clock to be leading clock next time                    
-                        DEBUGB_PULSE(10);
+
+                        /*                        
+                        if (currentBytebuffer & 0x01) {
+                            DEBUGA_PULSE(50); 
+                        } else {
+                            DEBUGB_PULSE(50);
+                        } 
+                        */
 
 
-                    } else if ( (bitwindow[led] & 0b00100110 ) == 0b00100100 ) {      // CD0C0X - TX clock faster (X=dont' care because this is the following data bit)
+                    } else if ( (currentBitwindow & 0b00100110 ) == 0b00100100 ) {      // CD0C0X - TX clock faster (X=dont' care because this is the following data bit)
                     
-                        bytebuffer[led] <<=1;                                 // make room for new bit in byte buffer
-                        bytebuffer[led] |= ( bitwindow[led] >> 4 & 0x01);     // Extract and save data bit 
+                        currentBytebuffer <<=1;                                 // make room for new bit in byte buffer
+                        currentBytebuffer |= ( currentBitwindow >> 4 & 0x01);     // Extract and save data bit 
                     
-                        bitwindow[led] = bitwindow[led] & 0b00000101;         // Save the tailing clock and data for next time    
-                        DEBUGB_PULSE(15);
+                        currentBitwindow = currentBitwindow & 0b00000101;         // Save the tailing clock and data for next time    
+                        
                     
                     } else {
                     
@@ -414,20 +467,19 @@ void ir_rx_isr(void)
                             
                         irled_rx_error |= _BV( led );       // Tell foreground
                             
-                        bytebuffer[led] = 0x00;     // We will not start decoding again until an idle
-                        DEBUGB_PULSE(20);
+                       currentBytebuffer = 0x00;     // We will not start decoding again until an idle
                         
                     }
                     
                     
-                    if (bytebuffer[led] & 0x80) {       // Have we decoded a full byte?!?
+                    if (currentBytebuffer & 0x80) {       // Have we decoded a full byte?!?
                         
                         // Note that to get here, we had to have successfully decoded 7 consecutive bits with valid patterns,
                         // which adds some filtering.
                         
                         if (irled_RX_value[led] == 0 )  {   // Is the incoming buffer free?
                             
-                            irled_RX_value[led] = bytebuffer[led];  // Send to foreground!
+                            irled_RX_value[led] = currentBytebuffer;  // Send to foreground!
                             
                         } else {
                             
@@ -435,9 +487,9 @@ void ir_rx_isr(void)
 
                         }
                         
-                        bytebuffer[led] = 0x00;         // Start hunting for an idle to receive next byte!                                                                                
+                        currentBytebuffer = 0x00;         // Start hunting for an idle to receive next byte!                                                                                
                         
-                        DEBUGB_PULSE(30);
+                        //DEBUGB_PULSE(30);
                         
                                                                                                   
                     }                                                       
@@ -446,10 +498,21 @@ void ir_rx_isr(void)
                                                         
             }                                
             
-        }            
+        }      
+        
+        
+        /*
+        tx_state[led].bitwindow = currentBitwindow;  
+        tx_state[led].bytebuffer = currentBytebuffer;    
+        */
+        
+        current_tx_state->bitwindow = currentBitwindow;  
+        current_tx_state->bytebuffer = currentBytebuffer;    
                        
     }                      
+
     //DEBUGA_0();
+
 
     return;
     
@@ -502,9 +565,9 @@ void blinkIr(void) {
         
         //_delay_ms(30);
 
-        DEBUGA_1();                
+        //DEBUGA_1();                
         while (TBI( IR_CATHODE_PIN , 0 ));
-        DEBUGA_0();        
+        //DEBUGA_0();        
                         
         //_delay_ms(10);
     }        

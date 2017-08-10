@@ -243,8 +243,8 @@ void setupTimers(void) {
     ;
     
     TCCR2B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
-        _BV(CS01);                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0    
-        //_BV(CS00);                        // clkI/O/1 (From prescaler)- This line also turns on the Timer0
+        //_BV(CS01);                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0    
+        _BV(CS00);                        // clkI/O/1 (From prescaler)- This line also turns on the Timer0
     
     // TODO: Maybe use Timer2 to drive the ISR since it has Count To Top mode available. We could reset Timer0 from there.
 
@@ -554,7 +554,8 @@ void pixel_isr(void) {
 ISR(TIMER0_OVF_vect)
 {
     
-    //DEBUGB_1();
+    DEBUGB_1();
+    
     static uint8_t phase=0;         // Dither the firings so we can get more done in shorter intervals
        
     phase++;
@@ -564,7 +565,41 @@ ISR(TIMER0_OVF_vect)
     // TODO: Should display stuff come first?
     
     // TODO: Is there a more elegant way to break out these bit tests? A case clearer, but probably would not figure out the odd phases as efficiently ?
+
+    // Note that switch takes about 14 more bytes....
+    
+    switch (phase & 0x07) {
         
+        case 0x01:
+        case 0x03:
+        case 0x05:
+        case 0x07:
+        
+            ir_rx_isr();                        // Read IR LED input on every other (1,3,5,7) phase - every 512us            
+            break;
+            
+        case 0x00:
+            ir_tx_clk_isr();
+            break;
+            
+        case 0x04: 
+            ir_tx_data_isr();
+            break;
+            
+            
+        case 0x02:
+            // pixel_isr();  // TODO: This sometimes takes 250us? Turn off until we get IR working then figure it out. 
+            break;            
+            
+        case 0x06:
+            // For future use!
+            break;
+            
+    }            
+                    
+    
+
+    /*    
     if (phase & 0x00000001) {                     // Read IR LED input on every other (1,3,5,7) phase - every 512us            
         
         ir_rx_isr();                      
@@ -584,19 +619,29 @@ ISR(TIMER0_OVF_vect)
             }                                
             
         
-        } else if ((phase & 0x07)==0b00000010) {   // Update display on phase 2 (00000010) (1/8th of the time), so every ~2ms 
+        } else {        // Phase 2 and 6, update the display
         
-            pixel_isr();
-            
-        } else if ( (phase & 0x07) == 0b00000110 ) {        // Extra phase 6, what for?!?
-            
-                   
-            
-        } 
-              
-    }    
+               // pixel_isr();  // TODO: This sometimes takes 250us? Turn off until we get IR working then figure it out. 
+                                
+        }
+                                              
+    }
+    
+    */
+    
+    
+    
+    /*
+    
+    // Test for timeslot overflow. If any task takes too long, it messes everything up. 
+    
+    if ( TIFR0 & _BV(TOV0) ) {
+        DEBUGB_PULSE(500);
+    } 
+    
+    */          
            
-    //DEBUGB_0();
+    DEBUGB_0();
 	
 }
 
