@@ -23,3 +23,5 @@ Each IR LED has a green stripe on the back which aligns to the line on the silk
 
 
 *** Completed PCB
+
+![](images/Complete.jpg)
