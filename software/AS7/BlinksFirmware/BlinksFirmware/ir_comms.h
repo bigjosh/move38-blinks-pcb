@@ -62,6 +62,17 @@ void ir_tx_data_isr(void);
 
 
 
+
+// Outgoing data
+// TODO: This should only really be volatile in the foreground, not in the ISR
+// How does that work in C?
+// OR does this really need to be volatile? Foreground only tests and sets if clear. Hmm...
+// High bit and low bit always must be set (start and stop bit) 
+
+extern volatile uint8_t ir_tx_data[IRLED_COUNT];
+
+
+
 // Last received byte from corresponding IRLED
 // TODO: Buffer? Async notice?
 

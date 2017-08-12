@@ -37,11 +37,13 @@
 
 void ir_tx_pulse( uint8_t bitmask ) {
     
-    // TODO: CHeck for input before sending and abort if found...
+    // TODO: Check for input before sending and abort if found...
 
     // ANODE always driven
+    
+    uint8_t cathode_ddr_save = IR_CATHODE_DDR;
 
-    IR_CATHODE_DDR = bitmask ;   // Drive Cathode too (now driving low)
+    IR_CATHODE_DDR |= bitmask ;   // Drive Cathode too (now driving low)
 
     // Anode pins are driven output and low normally, so this will
     // make them be driven high output 
@@ -76,7 +78,7 @@ void ir_tx_pulse( uint8_t bitmask ) {
                 
     IR_ANODE_PIN  = bitmask;    // Un-Blink! Sets anodes back to low (still output)      (Remember, a write to PIN actually toggles PORT)
 
-    IR_CATHODE_DDR ^= bitmask ;   // Cathode back to input too (now driving low) (XOR saves 4 bytes over AND+NOT)
+    IR_CATHODE_DDR = cathode_ddr_save;   // Cathode back to input too (now driving low) 
       
     // charge up receiver cathode pin while keeping other pins intact
            
@@ -90,6 +92,8 @@ void ir_tx_pulse( uint8_t bitmask ) {
     19.2.2. Toggling the Pin
     Writing a '1' to PINxn toggles the value of PORTxn, independent on the value of DDRxn. 
     */
+    
+    // TODO: Only recharge pins that we high when we started
     
     // TODO: These need to be asm because it sticks a load here.
                
@@ -197,15 +201,17 @@ void ir_tx_clk_isr(void) {
         
     // TODO: invert or use a bitslide to make more efficient
     
+    uint8_t *currentBitBuffer=bitBuffer;
+    
     for(uint8_t led=0; led<IRLED_COUNT;led++) {
         
-        if (bitBuffer[led]==0) {                // Currently idle on this face
+        if (*currentBitBuffer==0) {                // Currently idle on this face
             
             if ( irled_TX_value[led] ) {             // Is there a byte waiting to go out? (Will never be zero because of that top marker bit)
              
                 // Start sending a new byte...
              
-                bitBuffer[led] = irled_TX_value[led];        // Put it into our buffer so we will start sending it!   
+                *currentBitBuffer = irled_TX_value[led];        // Put it into our buffer so we will start sending it!   
                                                              // We use the top bit as a marker so we know when we are done
                                                              // and that 1 will also send the stop bit
                 
@@ -217,11 +223,13 @@ void ir_tx_clk_isr(void) {
         }
         
         
-        if ( bitBuffer[led]  ) {               // Is there a transfer in progress on this face?
+        if ( *currentBitBuffer  ) {               // Is there a transfer in progress on this face?
             
             outgoingPulses |= _BV(led);            // Send a clock pulse
                 
-        }                             
+        }        
+        
+        currentBitBuffer++;                     
                                      
     }        
     
@@ -333,7 +341,7 @@ void ir_rx_isr(void)
 
     */
     
-    
+    //DEBUGB_1();
     uint8_t ir_LED_PIN_sample = IR_CATHODE_PIN;      // Quickly sample the PIN (we will work the bits later)
     
     // charge up receiver cathode pin while keeping other pins intact
@@ -358,13 +366,14 @@ void ir_rx_isr(void)
     // Stop charging LED cathode pins (toggle the triggered bits back o what they were)
     
     IR_CATHODE_PIN =  IR_BITS;
+    //DEBUGB_0();
         
                 
     uint8_t currentSample = ~ir_LED_PIN_sample;           // recent sample (NOT because a pulse discharges LED)
     
     
     if ( (currentSample & 0x01)) {
-        //DEBUGA_PULSE(20);
+        DEBUGA_PULSE(20);
     } else {
         
     } 
@@ -397,7 +406,7 @@ void ir_rx_isr(void)
         
         currentBitwindow <<= 1;           // Make room for new sample
         
-        currentBitwindow |= (currentSample & 0b00000001);      // Grab received sample for ths face
+        currentBitwindow |= (currentSample & 0b00000001);      // Grab received sample for this face
         
         currentSample >>=1;                                 // Shift down the sample so low bit is new face for next pass
         
@@ -516,21 +525,387 @@ void ir_rx_isr(void)
 
     return;
     
-}                    
+}          
+
+
+// We care about the time between pulses. 
+// This ISR records a timestamp when a pulse is received and compuetes if it was the second in a chain. 
+
+
+// This holds the timer value of the last time we got triggered
+// The overflow ISR will...
+// If the topbit==1, then the last pulse was more than 1ms ago so we set both to 0 to start waiting again
+// If the topbit==0 && set==1, then topbit=1 and set=0 to wait for the second pulse
+// if both 0, then we are just waiting and there was no recent pulse
+
+// If the topbit==1 && set==1, then the last pulse was more than 1ms ago so we set both to 0 to start waiting again
+
+static uint8_t timestampTopBits;               // has the timestamp overflowed?
+static uint8_t timestampSetBits;           // is the timestamp currently set?
+
+static uint8_t timestamp[IRLED_COUNT];         // Most recent stamp
+        
+
+// This timer0 overflow ISR will copy 0 to 1 and set 0 to "0" to show it is empty. 
+
+// This gets called anytime one of the IR LED cathodes has a level change drops. This typically happens because some light 
+// hit it and discharged the capacitance, so the pin goes from high to low. We initialize each pin at high, and we charge it
+// back to high everything it drops low, so we should in practice only ever see high to low transitions here.
+
+// Note that there is also a background task that periodically recharges all the LEDs frequently enough that 
+// that they should only ever go low from a very bright source - like an IR led pointing right down their barrel. 
+
+ISR(IR_ISR)
+{	
+
+
+    //DEBUGA_1();                
+    
+    // ===Time critcal section start===
+    
+    // If a pulse comes in after we sample but before we finish charging and enabling pin change, then we will miss it
+    // so best to keep this short and straight
+    
+    // Note that protocol should make sure that real data pulses shuld have a header pulse that 
+    // gets this receiver in sync so we only are rechaing in the idle time after a pulse. 
+    // real data pulses should come less than 1ms after the header pulse, and should always be less than 1ms apart. 
+    
+    uint8_t now = TCNT0;                // Capture the current timer value
+    
+                                        
+    // Find out which IR LED(s) went low to trigger this interrupt
+            
+    uint8_t ir_LED_triggered_bits = (~IR_CATHODE_PIN) & IR_BITS;      // A 1 means that LED triggered
+    
+    PCMSK1 &= ~ir_LED_triggered_bits;                                 // stop Triggering interrupts on these pins because they are going to change when we charge them
+    
+    // charge up receiver cathode pins while keeping other pins intact
+           
+    // This will enable the pull-ups on the LEDs we want to change without impacting other pins
+    // The other pins will stay whatever they were.
+    
+    // NOTE: We are doing something tricky here. Writing a 1 to a PIN bit actually toggles the PORT bit. 
+    // This saves about 10 instructions to manually load, or, and write back the bits to the PORT. 
+    
+    
+    /*
+        19.2.2. Toggling the Pin
+        Writing a '1' to PINxn toggles the value of PORTxn, independent on the value of DDRxn. 
+    */
+    
+    IR_CATHODE_PIN =  ir_LED_triggered_bits;
+    
+    // Empirically this is how long it takes to charge running at 2Mhz
+    // and avoid false positive triggers in 1ms window 12" from halogen desk lamp
+    
+    asm("nop");
+    asm("nop");
+    
+    // Stop charging LED cathode pins (toggle the triggered bits back to what they were)
+    
+    IR_CATHODE_PIN = ir_LED_triggered_bits;     
+    
+    // Only takes a tiny bit of time to charge up the cathode, even though the pull-up so no extra delay needed here...
+    
+
+    PCMSK1 |= ir_LED_triggered_bits;    // Re-enable pin change on the pins we just charged up
+                                        // Note that we must do this while we know the pins are still high
+                                        // or there might be a *tiny* race condition if the pin changed in the cycle right after
+                                        // we finished charging but before we enabled interrupts. This would latch until the next 
+                                        // recharge timeout.
+                                            
+                                            
+    // ===Time critcal section end===
+    
+                
+    //ir_tx_pulse( LED_BIT(5) );          // Blink D5
+        
+    //_delay_ms(30);
+    
+    // This is more efficient than a loop on led_count since AVR only has one pointer register
+    // and bit operations are fast 
+    
+    uint8_t bitmask = _BV( IRLED_COUNT-1 );           // We will walk down though the 6 leds
+    
+    uint8_t *timestampptr = timestamp+IRLED_COUNT;
+    
+    do {
+           
+        if ( ir_LED_triggered_bits & bitmask )  {         // Did we just get a pulse on this LED?
+                        
+            if (timestampSetBits & bitmask) {            // Do we have a previous sample?
+                
+                // If we get here, then we know that we got 2 samples in a row and they were within 2ms of each other
+                
+                uint8_t delay;
+                                
+                if (timestampTopBits & bitmask ) {       // did we cross a timer reset boundary since last sample?
+                    
+                    if (now < *timestampptr) {      // Check to make sure two pulses were less than one timer cycle appart
+                        
+                        // account for the roll over    
+                    
+                        // The effective calculation is delay = (256 - (*timestampptr)) + now;
+                        // since we count the ticks before the roll, plus the ticks after
+                    
+                        // Luckily with 8 bit math, we just do simple add and the top bit falls away!
+                    
+                    
+                        delay = now + (*timestampptr);
+                        
+                    } else {
+                        
+                        // If we got here, then the two pulses were more than one cycle appart so too long
+                        
+                        delay = 255;
+                        
+                    }                                                
+                    
+                
+                } else {
+                    
+                    // counter did not reset since last sample, so simple subtraction 
+                    
+                    delay = now - (*timestampptr);
+
+                }                                    
+                
+                
+                // If we get here, then we received 2 pulses in a row and the time between them is in `delay`
+                
+                
+            }                
+            
+
+        }                   
+        
+        timestampptr--;
+        bitmask >>=1;
+        
+    } while (bitmask);
+
+
+    //DEBUGA_0();   
+    
+    // If any LED pin changed while we were in this ISR, then we will get called again
+    // as soon as we return and interrupts are enabled again.      
+        
+}
+
+
+// Outgoing data
+// TODO: This should only really be volatile in the foreground, not in the ISR
+// How does that work in C?
+// OR does this really need to be volatile? Foreground only tests and sets if clear. Hmm...
+// High bit and low bit always must be set (start and stop bit) 
+
+volatile uint8_t ir_tx_data[IRLED_COUNT];
+
+// Local buffer for transmit in progress. 
+// This has to be separate to make sure we only start using new values at the beginning of a bit 
+
+static uint8_t ir_tx_data_buffer[IRLED_COUNT];
+
+
+// Takes care of actual transmit of pending data
+// Called every 0.3ms (1 times per cycle)
+
+// TODO: Turn on ints here to help with RX jitter?
+
+ISR(TIMER1_OVF_vect) {
+    DEBUGA_1();
+    
+    // On the overflow we send the clock pulse. 
+    // This happens for both 0 and 1 bits. 
+    
+    uint8_t irbits=0;       // Which IR LEDs have outbound data right now? (We will flash any that do)
+    
+    uint8_t bitmask = _BV( IRLED_COUNT -1 );
+    
+    uint8_t ledptr = IRLED_COUNT-1;
+    
+    uint8_t *buffer = ir_tx_data_buffer+IRLED_COUNT-1;
+    
+    do {
+        
+        if ( ir_tx_data_buffer[ledptr] == 0 ) {   // Buffer empty? Start sending next available byte
+            
+            ir_tx_data_buffer[ledptr] = ir_tx_data[ledptr];     // Grab next byte
+            ir_tx_data[ledptr] = 0;                             // Signal to foreground that coast is clear
+            
+        }            
+        
+        if ( ir_tx_data_buffer[ledptr] ) {      // Because of the stop bit, the buffer will always be non-zero if a data transmision in progress
+            
+            irbits |= bitmask;
+            
+            DEBUGB_PULSE(5); 
+                                    
+        }            
+        
+        bitmask >>=1;
+        ledptr--;
+        
+    } while (bitmask);
+    
+    
+    // Ok, here irbits has a 1 for each IR LED that has a pending data transmission on it. 
+    
+    // Send a pulse on all faces that have a transmission 
+    ir_tx_pulse( irbits );
+
+    DEBUGA_0();
+        
+}    
+
+// Here we send 2nd pulse for all 1 bits
+
+ISR(TIMER1_COMPA_vect) {
+    DEBUGA_1();
+    uint8_t irbits=0;       // Which IR LEDs have outbound data right now? (We will flash any that do)
+    
+    uint8_t bitmask = _BV( IRLED_COUNT -1 );
+    uint8_t *buffer = ir_tx_data_buffer+IRLED_COUNT-1;
+    
+    do {
+        
+        uint8_t data = *buffer;
+        
+        if ( data & 0x80  ) {      // are we sending a 1?
+            
+            irbits |= bitmask;
+            DEBUGB_PULSE(2); 
+            
+        }            
+        
+        bitmask >>=1;
+        *buffer--;
+        
+    } while (bitmask);
+    
+    
+    // Send a pulse on all faces that have a 1 bit coming  
+    ir_tx_pulse( irbits );
+
+    DEBUGA_0();
+    
+    
+    
+}    
+
+
+// Here we send 2nd pulse for all 0 bits
+// ...and shift down all pending buffers
+
+ISR(TIMER1_COMPB_vect) {
+    
+    DEBUGA_1();
+    uint8_t irbits=0;       // Which IR LEDs have outbound data right now? (We will flash any that do)
+    
+    uint8_t bitmask = _BV( IRLED_COUNT -1 );
+    uint8_t *buffer = ir_tx_data_buffer+IRLED_COUNT-1;
+    
+    do {
+        
+        uint8_t data = *buffer;
+
+        //if ( !( data & 0x80 ) ) {      // is the current bit a 0 (or just idle)?
+                                         // Idle keeps the reciever primed and charged so it wont be rechaning 
+                                         // right when we send. 
+
+        
+        if ( data && !( data & 0x80 ) ) {      // is the current bit a 0? (For now don't send idle)
+            
+            irbits |= bitmask;
+            
+            DEBUGB_PULSE(2); 
+            
+        }            
+        
+        // Update buffers for the most recent transmitted bit
+        // (update here for both 0 and 1 bits)
+        // TODO: Make sure we have time here by figuring out where all the other ISR land in the millisecond
+        
+        data <<=1;       // Shift the next bit into the data buffer
+        *buffer = data;  // Save it
+        
+        bitmask >>=1;
+        *buffer--;
+        
+    } while (bitmask);
+    
+    
+    // Send a pulse on all faces that have a 0 bit coming  
+    ir_tx_pulse( irbits );
+
+    DEBUGA_0();
+    
+    
+}    
+
+
+// IR comms uses up the 16 bit timer1 
+// We only want 8 bits so will set the TOP at 256.
+// 
+// We run this timer at /8 prescaller so at 2Mhz with TOP = 256
+// So overflow every ~1ms
+// This is same period as main timer, so we will start this one out of step with that one 
+// so hopefully they will stay out of each other's way
+
+static void init_ir_timer(void) {
+    
+   TCCR1A = _BV( WGM10);         // Fast PWM, 8-bit TOP=0x00FF Update OCR at BOTTOM, Set TOV at TOP
+   TCCR1B = _BV( WGM12) |
+            _BV( CS11 );         // clkI/O/8 (From prescaler)
+            
+            
+   // THESE MUST BE DISTINCTIVE!
+   // We detect a bit by measuring this time between pulses, so the time between 
+   // a trailing 0 bit pulse and the next sync pulse must be long enough that it does not
+   // look like another 1 bit.             
+            
+   OCR1AL = 50 ;                 // Define spacing for a 1 bit
+                                 // This will call COMPA vector on match 
+                                 // and we will transmit all the 0 bits
+                                 
+   
+   OCR1BL = 100;                 // Define spacing for a 0 bit
+                                 // This will call COMPB vector on match 
+                                 // and we will transmit all the 1 bits
+
+            
+   TIMSK1 = _BV(OCIE1A) | _BV(OCIE1B)|  _BV( TOIE1 );       // Enable interrupts on matching A & B, and at overflow     
+             
+}          
 
 void ir_init(void) {
     
-  DEBUG_INIT();     // TODO: Get rid of all debug stuff
+    DEBUG_INIT();     // TODO: Get rid of all debug stuff
       
     
-  IR_ANODE_DDR = IR_BITS ;  // Set all ANODES to drive (and leave forever)
-                            // The PORT will be 0, so these will be driven low
-                            // until we actively send a pulse
+    IR_ANODE_DDR = IR_BITS ;    // Set all ANODES to drive (and leave forever)
+                                // The PORT will be 0, so these will be driven low
+                                // until we actively send a pulse
                             
-  // Leave cathodes DDR in input mode. When we write to PORT, then we will be enabling pull-up which is enough to charge the 
-  // LEDs and saves having to switch DDR every charge. 
+    // Leave cathodes DDR in input mode. When we write to PORT, then we will be enabling pull-up which is enough to charge the 
+    // LEDs and saves having to switch DDR every charge. 
   
-  // Initial charge up of cathodes will happen first time ISR is called. 
+  
+    // Initial charge up of cathodes
+    // TODO: Document this why PIN works.
+  
+    IR_CATHODE_PIN |= IR_BITS;
+    //asm("nop");
+    //asm("nop");
+    //asm("nop");    
+    IR_CATHODE_PIN |= IR_BITS;
+      
+    // Pin change interrupt setup
+    IR_MASK = IR_PCINT;             // Enable pin in Pin Change Mask Register for all 6 cathode pins. Any chyange after this will set the pending interrupt flag.
+    SBI( PCICR , IR_PCI );          // Enable the pin group
+    
+    init_ir_timer();
+  
       
 }
 

@@ -171,6 +171,17 @@ void setupPixelPins(void) {
 // Blue is not straight PWM since it is connected to a charge pump that charges on the + and activates LED on the 
 // TODO: Replace diode with MOSFET, which will require an additional pin for drive
 
+
+/*
+
+    2Mhz clock    
+      /8 timer prescaler
+
+    1Khz overflow fire
+    1ms period.       
+
+*/
+
 void setupTimers(void) {
     
     // First the main Timer0 to drive R & G. We also use the overflow to jump to the next multiplexed pixel.
@@ -207,7 +218,7 @@ void setupTimers(void) {
     /*           
            
     TCCR0B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
-        _BV( CS01 );                        // clkI/O/8 (From prescaler)- 256us period= ~4Khz. This line also turns on the Timer0
+        _BV( CS00 );                        // clkI/O/1 (From prescaler)- 128us period= ~8Khz. This line also turns on the Timer0
                                                 
     
     
@@ -215,7 +226,7 @@ void setupTimers(void) {
 
 
     TCCR0B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
-        _BV( CS00 );                        // clkI/O/1 (From prescaler)- ~ This line also turns on the Timer0
+        _BV( CS01 );                        // clkIO/8 (From prescaler)- ~ This line also turns on the Timer0
     
     
     
@@ -243,8 +254,7 @@ void setupTimers(void) {
     ;
     
     TCCR2B =                                // Turn on clk as soon as possible after setting COM bits to get the outputs into the right state
-        //_BV(CS01);                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0    
-        _BV(CS00);                        // clkI/O/1 (From prescaler)- This line also turns on the Timer0
+        _BV(CS01);                        // clkI/O/8 (From prescaler)- This line also turns on the Timer0    
     
     // TODO: Maybe use Timer2 to drive the ISR since it has Count To Top mode available. We could reset Timer0 from there.
 
@@ -419,7 +429,23 @@ void tick(void) {
 // Update the RGB pixels.
 // Call at ~500Khz    
 
-// TODO: Move to new source file, make function inline?                  
+// TODO: Move to new source file, make function inline?    
+
+// WARNING: Non-intuitive sequencing!
+// Because the timer only latches the values in the OCR registers at the moment this ISR fires, by the time we are running
+// it is already lateched the *previous* values and they are currently being used. That means that right now we need to...
+//
+// 1. Activate the common line for the values that were previously latched.
+// 2. Load the values into OCRs to be latched when this cycle completes.
+//
+// You'd think we could just offset the raw values by one, but that doesn't work because the boost enable must match 
+// the values currently being displayed. 
+//
+// Note that we have plenty of time to do stuff once the boost enable is updated for the
+// values for the currently displayed pixel (the last loaded OCR values), because we have arranged things so that LEDs
+// are always *off* for the 1st half of the cycle. 
+
+              
                                     
 void pixel_isr(void) {   
 
@@ -528,75 +554,23 @@ void pixel_isr(void) {
                                 
 // Called when Timer0 overflows, which happens at the end of the PWM cycle for each pixel. We advance to the next pixel.
 
-// Non-intuitive sequencing!
-// Because the timer only latches the values in the OCR registers when at the moment this ISR fires, by the time we are running
-// it is already lateched the *previous* values and they are currently being used. That means that right now we need to...
-//
-// 1. Activate the common line for the values that were previously latched.
-// 2. Load the values into OCRs to be latched when this cycle completes.
-//
-// You'd think we could just offset the raw values by one, but that doesn't work because the boost enable must match 
-// the values currently being displayed. 
-//
-// Note that we have plenty of time to do stuff once the boost enable is updated for the
-// values for the currently displayed pixel (the last loaded OCR values), because we have arranged things so that LEDs
-// are always *off* for the 1st half of the cycle. 
-
-// This fires every 256us (~4Khz)
-// No phase should take longer than 256us or else it will run into the next phase's time slot and add jitter
-
-// If you need to do something that takes longer, then pick a phase with an empty phase after it and make sure you
-// take less than 2 phases to finish. 
-// If a phase takes longer than 512us, then we will miss an overflow and everything will get really messed. 
-
+// This fires every 1ms (1Khz)
+// You must finish work in this ISR in 1ms or else might miss an overflow.
 
 
 ISR(TIMER0_OVF_vect)
 {
     
-    DEBUGB_1();
+    //DEBUGB_1();
     
-    static uint8_t phase=0;         // Dither the firings so we can get more done in shorter intervals
-       
-    phase++;
+    // TODO: Probably do pixel stuff first?
     
-    // 8 phases, 256us between them.
-    
-    // TODO: Should display stuff come first?
-    
-    // TODO: Is there a more elegant way to break out these bit tests? A case clearer, but probably would not figure out the odd phases as efficiently ?
+    //ir_rx_isr();                        // Read IR LED input on every other (1,3,5,7) phase - every 512us            
 
-    // Note that switch takes about 14 more bytes....
-    
-    switch (phase & 0x07) {
-        
-        case 0x01:
-        case 0x03:
-        case 0x05:
-        case 0x07:
-        
-            ir_rx_isr();                        // Read IR LED input on every other (1,3,5,7) phase - every 512us            
-            break;
+    //ir_tx_clk_isr();
+    //ir_tx_data_isr();
+    // pixel_isr();  // TODO: This sometimes takes 250us? Turn off until we get IR working then figure it out. 
             
-        case 0x00:
-            ir_tx_clk_isr();
-            break;
-            
-        case 0x04: 
-            ir_tx_data_isr();
-            break;
-            
-            
-        case 0x02:
-            // pixel_isr();  // TODO: This sometimes takes 250us? Turn off until we get IR working then figure it out. 
-            break;            
-            
-        case 0x06:
-            // For future use!
-            break;
-            
-    }            
-                    
     
 
     /*    
@@ -641,7 +615,7 @@ ISR(TIMER0_OVF_vect)
     
     */          
            
-    DEBUGB_0();
+    //DEBUGB_0();
 	
 }
 
@@ -1143,12 +1117,33 @@ void showEffects() {
 	}
 }
 
+// Change clock prescaller to run at 2Mhz. 
+// By default the CLKDIV fuse boots us at 8Mhz osc /8 so 1Mhz clock
+// Change the prescaller to get some more speed
+
+/*
+
+    To avoid unintentional changes of clock frequency, a special write procedure must be followed to change the
+    CLKPS bits:
+    1. Write the Clock Prescaler Change Enable (CLKPCE) bit to one and all other bits in CLKPR to zero.
+    2. Within four cycles, write the desired value to CLKPS while writing a zero to CLKPCE.
+
+*/
+
+static void mhz_init(void) {
+    CLKPR = _BV( CLKPCE );                  // Enable changes
+    CLKPR = _BV( CLKPS1 );                  // DIV 4 (2Mhz clock with 8Mhz RC osc)
+}    
+
 // Timer1 for internal time keeping (mostly timing IR pulses) because it is 16 bit and its pins happen to fall on ports that are handy for other stuff
 // Timer0 A=Red, B=Green. Both happen to be on handy pins
 // Timer2B for Blue duty. Works out perfectly because we can use OCR2A as a variable TOP to change the frequency for the charge pump, which is better to change than duty. 
 
 int main(void)
 {
+    
+    mhz_init();         // Swith to 2Mhz. TODO: Some day it would be nice to go back to 1Mhz for FCC, but lets just get things working now. 
+    
     DEBUG_INIT();
     
     adc_init();         // Init ADC to start measuring battery voltage
@@ -1177,6 +1172,27 @@ int main(void)
         
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
 	
+    
+    uint8_t count=0; 
+    while (1) {
+        
+        ir_tx_data[0] = 0x80 | 0 | 0x01;
+        ir_tx_data[1] = 0x80 |  (count<<1) | 0x01;
+        ir_tx_data[2] = 0x80 | (2<<1) | 0x01;
+        _delay_ms(2); 
+        ir_tx_data[3] = 0x80 |( (100-count)<<1) | 0x01;
+        _delay_ms(40); 
+        ir_tx_data[4] = 0x80 | (255<<1) | 0x01;
+        ir_tx_data[5] = 0x80 | (0x55<<1) | 0x01;
+       
+        count++;
+        
+        if (count==20) count=0;
+        
+        _delay_ms(1000); 
+        
+    }        
+    
     uint16_t countdown[FACE_COUNT];
     
     while (1) {
