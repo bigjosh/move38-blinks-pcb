@@ -9,7 +9,7 @@
 #ifndef BLINKS_H_
 #define BLINKS_H_
 
-#define F_CPU 1000000           // Default fuses
+#define F_CPU 4000000           // Default fuses
 
 #define FACE_COUNT 6               // Total number of IRLEDs 
 

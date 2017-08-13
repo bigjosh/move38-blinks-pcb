@@ -1132,25 +1132,55 @@ void showEffects() {
 
 static void mhz_init(void) {
     CLKPR = _BV( CLKPCE );                  // Enable changes
-    CLKPR = _BV( CLKPS1 );                  // DIV 4 (2Mhz clock with 8Mhz RC osc)
+    CLKPR = _BV( CLKPS0 );                  // DIV 2 (4Mhz clock with 8Mhz RC osc)
+    
+    #if (F_CPU != 4000000 ) 
+        #error F_CPU must match the clock prescaller bits set in mhz_init()
+    #endif    
 }    
 
 // Timer1 for internal time keeping (mostly timing IR pulses) because it is 16 bit and its pins happen to fall on ports that are handy for other stuff
 // Timer0 A=Red, B=Green. Both happen to be on handy pins
 // Timer2B for Blue duty. Works out perfectly because we can use OCR2A as a variable TOP to change the frequency for the charge pump, which is better to change than duty. 
 
+
+#define IR_CATHODE_PORT PORTC
+#define IR_CATHODE_DDR  DDRC
+#define IR_CATHODE_PIN  PINC
+
+#define IR_ANODE_PORT PORTB
+#define IR_ANODE_DDR  DDRB
+#define IR_ANODE_PIN  PINB
+
 int main(void)
 {
+
+    mhz_init();         // switch to 2Mhz. TODO: Some day it would be nice to go back to 1Mhz for FCC, but lets just get things working now. 
     
-    mhz_init();         // Swith to 2Mhz. TODO: Some day it would be nice to go back to 1Mhz for FCC, but lets just get things working now. 
+    /*
+    IR_CATHODE_DDR = IR_BITS;
+    IR_ANODE_DDR   = IR_BITS;
     
+    while (1) {
+        
+        IR_ANODE_PORT = IR_BITS;
+        _delay_us(20);
+        
+        IR_ANODE_PORT = 0;
+        _delay_us(20);
+        
+    }        
+      
+      */  
+    
+       
     DEBUG_INIT();
     
-    adc_init();         // Init ADC to start measuring battery voltage
+    //adc_init();         // Init ADC to start measuring battery voltage
     
     ir_init();
     
-    setupTimers();
+    //setupTimers();
     
     sei();
         
@@ -1171,8 +1201,24 @@ int main(void)
 	setupButton();
         
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
-	
     
+    while (1) {
+        
+        for( uint8_t count=0; count<4; count++ ) {
+        
+            for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
+            
+                ir_tx_data[face] = to_tx_pattern( count ) ; 
+                        
+            }   
+        
+            _delay_ms(500);                                                               
+        }        
+    }    
+    
+    
+	
+    while (1);
     uint8_t count=0; 
     while (1) {
         
@@ -1194,47 +1240,6 @@ int main(void)
     }        
     
     uint16_t countdown[FACE_COUNT];
-    
-    while (1) {
-        
-        for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
-            
-            irled_TX_value[face] = 0x85;          
-            
-            /*
-        
-            uint8_t value = irled_RX_value[face];
-        
-            if ( value ) {
-                
-                if (value >= 0x01 ) {
-                
-                    setPixelRGB( face , 0 , 255 , 0 );
-                    
-                } else {
-                    
-                    setPixelRGB( face , 255 , 0 , 0);
-                    
-                }                                        
-                irled_RX_value[face] = 0;
-                countdown[face]=50;                        
-                
-            } else {
-            
-                if (countdown[face]) {
-                    countdown[face]--;
-                } else {
-                    setPixelRGB( face , 0 , 0 , 0 );
-                } 
-            } 
-            
-            */
-                
-            
-        }   
-        
-        _delay_ms(500);                                                               
-    }        
     
 	showEffects();
 

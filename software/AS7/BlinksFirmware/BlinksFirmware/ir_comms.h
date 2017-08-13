@@ -54,14 +54,10 @@ volatile uint8_t irled_RX_value[IRLED_COUNT];   // MSB set indicates data here (
 volatile uint8_t irled_rx_error;        // There was an invalid pulse pattern on the indicated face
 volatile uint8_t irled_rx_overflow;     // The value[] buffer was not empty when a new byte was received
 
+// We pass in a pattern of raw pulses rather than the value. This pushes work into the forground
+// and gives the ISR exactly what it wants to eat pre-chewed. 
 
-// Send IR data
-
-void ir_tx_clk_isr(void);
-void ir_tx_data_isr(void);
-
-
-
+typedef uint8_t tx_pattern_t;
 
 // Outgoing data
 // TODO: This should only really be volatile in the foreground, not in the ISR
@@ -69,15 +65,14 @@ void ir_tx_data_isr(void);
 // OR does this really need to be volatile? Foreground only tests and sets if clear. Hmm...
 // High bit and low bit always must be set (start and stop bit) 
 
-extern volatile uint8_t ir_tx_data[IRLED_COUNT];
+volatile tx_pattern_t ir_tx_data[IRLED_COUNT];
 
+// Convert a 2 bit value into an 8 bit pulse pattern for assignment to ir_tx-data for transmission
+// Value must be 0-3
 
+// TODO: Invert these so higher numbers take longer
 
-// Last received byte from corresponding IRLED
-// TODO: Buffer? Async notice?
+tx_pattern_t to_tx_pattern( uint8_t value );
 
-
-// This value is continuously sent on the corresponding face
-volatile uint8_t irled_TX_value[IRLED_COUNT];
    
 #endif /* IR-COMMS_H_ */
