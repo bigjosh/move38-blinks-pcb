@@ -17,68 +17,32 @@
 
 void ir_init(void);
 
-
-// Send a pulse on all LEDs that have a 1 in bitmask
-// bit 0= D1, bit 1= D2...
-
-void ir_tx_pulse( uint8_t bitmask );
-
-
-// Blink LED D5 at about 100hz for testing.
-// We pick that one because it shows up on the MOSI pin (pin #1 on ISP)
-// so it is easy to ease drop on it. 
-
-void blinkIr(void);
-
-
-// This ISR should be called at deterministically fixed intervals.
-// It...
-// 1. Reads LEDs to see if any pulses were received since last call
-// 2. Recharges LEDs to be read to receive pulses during upcoming interval
-// 3. Decodes bits and bytes and puts them into ir_values[] when a byte is successfully received.
-
-// Faster actually less noise because we are recharging LED more often. 
-// Speed limit is CPU overhead and increasing collisions and clock drift causing missed bits
-
-// TODO: Maybe this should be a macro to save the overhead of calling a 2 instruction function.
-
-
-// Called every 512us, but must not take more than 256us or it will clobber other background ISRs
-
-void ir_rx_isr(void);
-
-
 // The RX API...
 
-volatile uint8_t irled_RX_value[IRLED_COUNT];   // MSB set indicates data here (data is bottom 7 bits). Set high bit to zero after reading to clear the way for next byte.
-volatile uint8_t irled_rx_error;        // There was an invalid pulse pattern on the indicated face
-volatile uint8_t irled_rx_overflow;     // The value[] buffer was not empty when a new byte was received
-
-// Returns last received data for requested face
+// Returns last received data (value 0-3) for requested face
 // bit 2 is 1 if data found, 0 if not
 // if bit 2 set, then bit 1 & 0 are the data
+// So possible return values:
+// 0x00=0b00000000=No data received since last read
+// 0x04=0b00000100=Received 0
+// 0x04=0b00000101=Received 1
+// 0x04=0b00000110=Received 2
+// 0x04=0b00000111=Received 3
 
-uint8_t readIRdata( uint8_t led);
+uint8_t ir_read( uint8_t led);
 
-// We pass in a pattern of raw pulses rather than the value. This pushes work into the forground
-// and gives the ISR exactly what it wants to eat pre-chewed. 
 
-typedef uint8_t tx_pattern_t;
+// If bit set, then a new byte was received before the previous byte was read.
+// Currently the older byte is kept. 
 
-// Outgoing data
-// TODO: This should only really be volatile in the foreground, not in the ISR
-// How does that work in C?
-// OR does this really need to be volatile? Foreground only tests and sets if clear. Hmm...
-// High bit and low bit always must be set (start and stop bit) 
+volatile uint8_t irled_rx_overflow;             
 
-volatile tx_pattern_t ir_tx_data[IRLED_COUNT];
 
-// Convert a 2 bit value into an 8 bit pulse pattern for assignment to ir_tx-data for transmission
-// Value must be 0-3
+// Transmit a value (0-3) on face
+// (only 2 bits of data for now)
+// If no transmit in prgress, then returns immedeately and starts the transmit within 500us
+// IF a transmit is in progress, then blocks until that is complete. 
 
-// TODO: Invert these so higher numbers take longer
+uint8_t ir_send( uint8_t face , uint8_t data );
 
-tx_pattern_t to_tx_pattern( uint8_t value );
-
-   
 #endif /* IR-COMMS_H_ */

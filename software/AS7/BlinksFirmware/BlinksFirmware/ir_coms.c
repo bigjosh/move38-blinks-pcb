@@ -364,6 +364,14 @@ tx_pattern_t to_tx_pattern( uint8_t value ) {
     
 }    
 
+uint8_t ir_send( uint8_t face , uint8_t data ) {
+    
+    while ( ir_tx_data[face]);          // Wait until any currently in progress transmission is complete
+    
+    ir_tx_data[face] = to_tx_pattern( data & 0x03 ); 
+    
+}    
+    
 
 // This is broken out into its own function because it is called from two places- the OVR ISR
 // and the IR ISR. 
@@ -604,7 +612,7 @@ ISR(IR_ISR)
 // bit 2 is 1 if data found, 0 if not
 // if bit 2 set, then bit 1 & 0 are the data
 
-uint8_t readIRdata( uint8_t led) {
+uint8_t ir_read( uint8_t led) {
 
     uint8_t data = irled_RX_value[ led ];
 

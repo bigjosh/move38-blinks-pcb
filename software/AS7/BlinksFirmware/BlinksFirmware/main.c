@@ -151,7 +151,9 @@ void setupPixelPins(void) {
 }
 
 
-
+// Timer1 for internal time keeping (mostly timing IR pulses) because it is 16 bit and its pins happen to fall on ports that are handy for other stuff
+// Timer0 A=Red, B=Green. Both happen to be on handy pins
+// Timer2B for Blue duty. Works out perfectly because we can use OCR2A as a variable TOP to change the frequency for the charge pump, which is better to change than duty.
 
 // CLOCK CALCULATIONS
 // Master clock is running at 1Mhz mostly to avoid FCC 15 issues. 
@@ -432,7 +434,7 @@ void tick(void) {
 // TODO: Move to new source file, make function inline?    
 
 // WARNING: Non-intuitive sequencing!
-// Because the timer only latches the values in the OCR registers at the moment this ISR fires, by the time we are running
+// Because the timer only latches the values in the OCR registers at the moment this ISR fires, by the time we are running here
 // it is already lateched the *previous* values and they are currently being used. That means that right now we need to...
 //
 // 1. Activate the common line for the values that were previously latched.
@@ -443,9 +445,8 @@ void tick(void) {
 //
 // Note that we have plenty of time to do stuff once the boost enable is updated for the
 // values for the currently displayed pixel (the last loaded OCR values), because we have arranged things so that LEDs
-// are always *off* for the 1st half of the cycle. 
-
-              
+// are always *off* for the 1st half of the timer cycle. 
+             
                                     
 void pixel_isr(void) {   
 
@@ -563,8 +564,7 @@ void pixel_isr(void) {
 
 ISR(TIMER0_OVF_vect)
 {
-    
-    
+        
     pixel_isr();
     return;
 
@@ -793,35 +793,22 @@ static void mhz_init(void) {
     #endif    
 }    
 
-// Timer1 for internal time keeping (mostly timing IR pulses) because it is 16 bit and its pins happen to fall on ports that are handy for other stuff
-// Timer0 A=Red, B=Green. Both happen to be on handy pins
-// Timer2B for Blue duty. Works out perfectly because we can use OCR2A as a variable TOP to change the frequency for the charge pump, which is better to change than duty. 
 
+static void setup(void) {
 
-#define IR_CATHODE_PORT PORTC
-#define IR_CATHODE_DDR  DDRC
-#define IR_CATHODE_PIN  PINC
-
-#define IR_ANODE_PORT PORTB
-#define IR_ANODE_DDR  DDRB
-#define IR_ANODE_PIN  PINB
-
-int main(void)
-{
-
-    mhz_init();         // switch to 2Mhz. TODO: Some day it would be nice to go back to 1Mhz for FCC, but lets just get things working now. 
-            
+    mhz_init();         // switch to 2Mhz. TODO: Some day it would be nice to go back to 1Mhz for FCC, but lets just get things working now.
+    
     DEBUG_INIT();
     
     //adc_init();         // Init ADC to start measuring battery voltage
     
     ir_init();
     
-              
-    setupPixelPins();   
+    
+    setupPixelPins();
     
     for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
-                
+        
         rawValueR[p]=255;
         rawValueG[p]=255;
         rawValueB[p]=255;
@@ -829,12 +816,22 @@ int main(void)
     }
     
     setupTimers();
-            
     
-	setupButton();
-        
-    sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
+    
+    setupButton();
+    
+    sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel.
 
+}    
+    
+
+int main(void)
+{
+
+    setup();
+
+
+    // Start with a test pattern to make sure all LEDs work...
 
     for(uint8_t face=0; face< FACE_COUNT; face++ ) {
                 
@@ -848,11 +845,11 @@ int main(void)
                 
     }
     
-    for(uint8_t face=0; face< FACE_COUNT; face++ ) {
-        
-        setPixelRGB( face , 0 , 0 , 0 );
-        
-    }
+   
+    // Simple IR tester
+    // Always transmitting and receiving.
+    // Sends a value that counts up from 0 to 3 and then resets to 0 on all faces about every 100ms.
+    // Always reading all faces, and when a value is received, shows that value as green brightness. 
     
     
     while (1) {
@@ -871,9 +868,9 @@ int main(void)
             countdown=0;
         
             for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
-            
-                ir_tx_data[face] = to_tx_pattern( data ) ;
-                        
+                
+                ir_send( face , data );
+                                    
             }   
                         
                         
@@ -882,13 +879,12 @@ int main(void)
             if (data == 0x04) data=0;
             
         }                                    
-            
-            
+                        
         // display thread
                 
         for(uint8_t face=0; face< FACE_COUNT; face++ ) {
                 
-            uint8_t data = readIRdata(face);
+            uint8_t data = ir_read(face);
 
             if (data ) {
                 
@@ -899,9 +895,7 @@ int main(void)
         }        
     }    
         
-    uint16_t countdown[FACE_COUNT];
-    
-	showEffects();
+
 
     /*    
 	
