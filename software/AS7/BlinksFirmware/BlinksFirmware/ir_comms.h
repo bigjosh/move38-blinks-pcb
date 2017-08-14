@@ -31,18 +31,18 @@ void ir_init(void);
 
 uint8_t ir_read( uint8_t led);
 
-
-// If bit set, then a new byte was received before the previous byte was read.
-// Currently the older byte is kept. 
+// If bit set, then a new byte was received before the previous byte in the buffer was read.
+// Currently the buffered byte is kept. 
+// The bit is cleared when the currently buffered byte is read. 
+// TODO: Does this belong in the public interface? Probably should it be hidden behind a function? 
 
 volatile uint8_t irled_rx_overflow;             
 
-
 // Transmit a value (0-3) on face
 // (only 2 bits of data for now)
-// If no transmit in prgress, then returns immedeately and starts the transmit within 500us
+// If no transmit in progress, then returns immediately and starts the transmit within 500us
 // IF a transmit is in progress, then blocks until that is complete. 
 
-uint8_t ir_send( uint8_t face , uint8_t data );
+void ir_send( uint8_t face , uint8_t data );
 
 #endif /* IR-COMMS_H_ */

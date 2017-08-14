@@ -364,7 +364,7 @@ tx_pattern_t to_tx_pattern( uint8_t value ) {
     
 }    
 
-uint8_t ir_send( uint8_t face , uint8_t data ) {
+void ir_send( uint8_t face , uint8_t data ) {
     
     while ( ir_tx_data[face]);          // Wait until any currently in progress transmission is complete
     
@@ -619,9 +619,12 @@ uint8_t ir_read( uint8_t led) {
     // Look for the starting pattern of 01 at the beginning of the data
 
     if ( ( data  & 0b00001100 ) == 0b00000100 ) {
-        
+
+        cli();                          // Must be atomic
         irled_RX_value[ led ] = 0;      // Clear out for next byte
-        
+        irled_rx_overflow &= ~_BV(led); // Clear out overflow flag
+        sei(); 
+                
         return( data );
         
     } else {
