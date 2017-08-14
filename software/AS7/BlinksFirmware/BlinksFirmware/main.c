@@ -851,48 +851,71 @@ int main(void)
     // Sends a value that counts up from 0 to 3 and then resets to 0 on all faces about every 100ms.
     // Always reading all faces, and when a value is received, shows that value as green brightness. 
     
-    
+
+    uint8_t b[FACE_COUNT];
+        
     while (1) {
         
         
         // Send thread
         
-        static uint16_t countdown=0;         
+        static uint8_t senddata=0;
         
-        countdown++;
+        static uint16_t power=0;         
         
-        if ( countdown == 1000  ) {     // Slow down so we only send about 4 blinks per second.
+        power++;
+        
+        if ( power >= 1000 ) {     // Slow down so we only send about 4 blinks per second.
             
-            static uint8_t data=0;
-                        
-            countdown=0;
-        
-            for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
+            for(uint8_t face=0; face< FACE_COUNT; face++ ) {
                 
-                ir_send( face , data );
-                                    
-            }   
-                        
-                        
-            data++;
+                ir_send( face , senddata );
+                
+            }
             
-            if (data == 0x04) data=0;
-            
-        }                                    
-                        
+            power=0;
+                                                
+        }                   
+        
+                                                
         // display thread
                 
         for(uint8_t face=0; face< FACE_COUNT; face++ ) {
                 
-            uint8_t data = ir_read(face);
+            uint8_t readdata = ir_read(face);
 
-            if (data ) {
+            if ( readdata ) {
                 
-                setPixelRGB( face , 0 , (data & 0x03) * 70 , 0 );
-                                 
-            }                
+                b[face] = 200; 
+                
+                /*
+                
+                Here is the simple magic:
+                
+                When coupled to others, an oscillator is receptive to the
+                pulses of its neighbors. When receiving such a pulse, it will
+                instantly increment its phase by an amount that depends on
+                the current value.
+                
+                http://www.rlocman.ru/i/File/2007/10/24/2006_WSL_Firefly_Synchronization_Ad_Hoc_Networks.pdf
+                
+                */
+                
+                 power += (power/10);       
+            } 
             
+                
+            if (b[face]) {
+                                
+                setPixelRGB( face , 0 , b[face], 0 );
+                b[face]--;
+                    
+            }                    
+                
+           
         }        
+        
+        _delay_us(1000);        // Power increments 1 per cycle, flash at 1000, so flash about 1hz
     }    
         
 
