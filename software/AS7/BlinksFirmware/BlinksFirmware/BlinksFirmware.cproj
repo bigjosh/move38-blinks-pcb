@@ -150,6 +150,9 @@
     <Compile Include="blinks.h">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="effects.c">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="hardware.h">
       <SubType>compile</SubType>
     </Compile>

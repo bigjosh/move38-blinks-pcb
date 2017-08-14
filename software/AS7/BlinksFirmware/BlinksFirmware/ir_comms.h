@@ -54,6 +54,12 @@ volatile uint8_t irled_RX_value[IRLED_COUNT];   // MSB set indicates data here (
 volatile uint8_t irled_rx_error;        // There was an invalid pulse pattern on the indicated face
 volatile uint8_t irled_rx_overflow;     // The value[] buffer was not empty when a new byte was received
 
+// Returns last received data for requested face
+// bit 2 is 1 if data found, 0 if not
+// if bit 2 set, then bit 1 & 0 are the data
+
+uint8_t readIRdata( uint8_t led);
+
 // We pass in a pattern of raw pulses rather than the value. This pushes work into the forground
 // and gives the ISR exactly what it wants to eat pre-chewed. 
 
