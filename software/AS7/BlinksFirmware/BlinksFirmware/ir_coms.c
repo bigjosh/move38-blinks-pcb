@@ -489,7 +489,7 @@ ISR(IR_ISR)
         
     uint8_t ledBitwalk = _BV( IRLED_COUNT-1 );           // We will walk down though the 6 leds
     
-    uint8_t *timestampptr = timestamp+IRLED_COUNT;
+    uint8_t *timestampptr = timestamp+(IRLED_COUNT-1);
     
     uint8_t led = IRLED_COUNT-1;        // TODO: Make an LED_STATE struct to make these accesses efficient on a single pointer
     
@@ -546,13 +546,11 @@ ISR(IR_ISR)
                     
                     if ( (irled_RX_value[ led ]  & 0b00001100 ) == 0b00000100  ) {
                         
-                        
-                        
                         // There is already a valid decoded byte here!
                         
                         irled_rx_overflow |= ledBitwalk;        // Signal overflow
                         
-                        DEBUGB_PULSE(20);
+                        //DEBUGB_PULSE(20);
                     
                     } else {                    
                     
@@ -565,7 +563,7 @@ ISR(IR_ISR)
                             
                             irled_RX_value[ led ]  |= 0x01;     
                         
-                        } 
+                        } // else - a 0 bit recieved, but we already shifted a 0 in...
                     
                     }                    
                                                                         
@@ -589,6 +587,7 @@ ISR(IR_ISR)
         }  //  if ( ir_LED_triggered_bits & bitmask ) 
         
         timestampptr--;
+        led--;
         ledBitwalk >>=1;
         
     } while (ledBitwalk);
@@ -607,13 +606,13 @@ ISR(IR_ISR)
 
 uint8_t readIRdata( uint8_t led) {
 
-    uint8_t data = irled_RX_value[ led ] & 0b00000011;
+    uint8_t data = irled_RX_value[ led ];
 
-    // Look for the starting pattern of 01 at the begining of the data
+    // Look for the starting pattern of 01 at the beginning of the data
 
     if ( ( data  & 0b00001100 ) == 0b00000100 ) {
         
-        irled_RX_value[ led ] = 0;      // CLear out for next byte
+        irled_RX_value[ led ] = 0;      // Clear out for next byte
         
         return( data );
         

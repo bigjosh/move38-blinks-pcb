@@ -449,7 +449,7 @@ void tick(void) {
                                     
 void pixel_isr(void) {   
 
-    DEBUGA_1();
+    //DEBUGA_1();
 
 
     static uint8_t previousPixel;     // Which pixel was lit on last pass?
@@ -551,7 +551,7 @@ void pixel_isr(void) {
     previousPixel = currentPixel;
     
 	//tick(); // TODO: No Vcc compensation yet
-    DEBUGA_0();
+    //DEBUGA_0();
 
 } 
                                 
@@ -564,6 +564,13 @@ void pixel_isr(void) {
 ISR(TIMER0_OVF_vect)
 {
     
+    
+    pixel_isr();
+    return;
+
+    // TODO: Make phasing stuff work when we switch to slots. 
+    // Keep in mind that when we multiplex pixels that we are always loading the NEXT values in
+    // so the OCR will latch on next overflow. 
     
     
     static uint8_t phase = 0;
@@ -803,36 +810,14 @@ int main(void)
 {
 
     mhz_init();         // switch to 2Mhz. TODO: Some day it would be nice to go back to 1Mhz for FCC, but lets just get things working now. 
-    
-    /*
-    IR_CATHODE_DDR = IR_BITS;
-    IR_ANODE_DDR   = IR_BITS;
-    
-    while (1) {
-        
-        IR_ANODE_PORT = IR_BITS;
-        _delay_us(20);
-        
-        IR_ANODE_PORT = 0;
-        _delay_us(20);
-        
-    }        
-      
-      */  
-    
-       
+            
     DEBUG_INIT();
     
     //adc_init();         // Init ADC to start measuring battery voltage
     
     ir_init();
     
-    //setupTimers();
-    
-    sei();
-        
-    //blinkIr();
-      
+              
     setupPixelPins();   
     
     for( uint8_t p=0; p<PIXEL_COUNT; p++ ) {
@@ -843,67 +828,73 @@ int main(void)
         
     }
     
-    
     setupTimers();
+            
+    
 	setupButton();
         
     sei();      // Let interrupts happen. For now, this is the timer overflow that updates to next pixel. 
-    
-    for(uint8_t i=0; 4<4; i++ ) {
+
+
+    for(uint8_t face=0; face< FACE_COUNT; face++ ) {
+                
+        setPixelRGB( face , 0 , 255 , 0 );
+
+        _delay_ms(100);
+
+        setPixelRGB( face , 0 , 0 , 0 );
+
         
+                
+    }
     
-        setPixelRGB( 5 , 0 , ( i & 0x03) * 70 , 0 );
-        _delay_us(500);
+    for(uint8_t face=0; face< FACE_COUNT; face++ ) {
         
-    }        
+        setPixelRGB( face , 0 , 0 , 0 );
+        
+    }
     
     
     while (1) {
         
-        for( uint8_t count=0; count<4; count++ ) {
+        
+        // Send thread
+        
+        static uint16_t countdown=0;         
+        
+        countdown++;
+        
+        if ( countdown == 1000  ) {     // Slow down so we only send about 4 blinks per second.
+            
+            static uint8_t data=0;
+                        
+            countdown=0;
         
             for(uint8_t face=0; face< FACE_COUNT; face++ ) { 
             
-                ir_tx_data[face] = to_tx_pattern( count ) ;
-
+                ir_tx_data[face] = to_tx_pattern( data ) ;
                         
             }   
                         
-            _delay_ms(500);
+                        
+            data++;
             
-                
-                
-            uint8_t data = readIRdata(5);
-                
-
-            if (data) {
-                
-                setPixelRGB( 5 , 0 , (data & 0x03) * 70 , 0 );
-                    
-                DEBUGA_PULSE(1);
-                _delay_us(5);
-                    
-                    
-                if (data & 0x02 ) {
-                    DEBUGA_PULSE(20);
-                    } else {
-                    DEBUGB_PULSE(20);
-                }
-                    
-                _delay_us(5);
-                    
-                if (data & 0x01 ) {
-                    DEBUGA_PULSE(20);
-                    } else {
-                    DEBUGB_PULSE(20);
-                }
-
-                _delay_us(5);
-                    
-                DEBUGA_PULSE(1);
-                    
-            }
+            if (data == 0x04) data=0;
             
+        }                                    
+            
+            
+        // display thread
+                
+        for(uint8_t face=0; face< FACE_COUNT; face++ ) {
+                
+            uint8_t data = readIRdata(face);
+
+            if (data ) {
+                
+                setPixelRGB( face , 0 , (data & 0x03) * 70 , 0 );
+                                 
+            }                
             
         }        
     }    
