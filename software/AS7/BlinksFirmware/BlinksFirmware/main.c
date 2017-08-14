@@ -852,7 +852,7 @@ int main(void)
     // Always reading all faces, and when a value is received, shows that value as green brightness. 
     
 
-    uint8_t b[FACE_COUNT];
+    uint8_t brightness = 0;
         
     while (1) {
         
@@ -874,20 +874,27 @@ int main(void)
             }
             
             power=0;
+            
+            brightness =255;
                                                 
         }                   
         
-                                                
-        // display thread
                 
+        if (brightness) {
+                    
+            setRGB( 0 , --brightness , 0 );
+                                
+        }
+                
+        
+                                                
+        // Check neighboors
+               
         for(uint8_t face=0; face< FACE_COUNT; face++ ) {
                 
             uint8_t readdata = ir_read(face);
 
             if ( readdata ) {
-                
-                b[face] = 200; 
-                
                 /*
                 
                 Here is the simple magic:
@@ -904,16 +911,16 @@ int main(void)
                  power += (power/10);       
             } 
             
-                
-            if (b[face]) {
-                                
-                setPixelRGB( face , 0 , b[face], 0 );
-                b[face]--;
-                    
-            }                    
-                
            
         }        
+        
+        // Handy way to reset and unsync them
+        
+        if (BUTTON_DOWN()) {
+            
+            power=0;
+            
+        }            
         
         _delay_us(1000);        // Power increments 1 per cycle, flash at 1000, so flash about 1hz
     }    
