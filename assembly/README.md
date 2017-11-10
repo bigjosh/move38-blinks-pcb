@@ -1,27 +1,43 @@
 ### Tile Assembly Notes
 
-## 0606 RGB LED
+# Overview
 
-The green dot on the LED face always aligns with the dot on the silk. All green dots on RGB LEDs point towards outside edge of PCB.
 
-![](images/RGB-P2_orientaion.png)
+![](images/Overview.png)
 
-![](images/RGB-P1.png)
-![](images/RGB-P3.png)
-![](images/RGB-P4.png)
+# Orientation
+
+## 0606 RGB LEDs P0-P5
+
+The green dot on the RGB LED face aligns with the dot on the silk. All green dots on RGB LEDs point towards outside edge of PCB.
+
+![](images/RGB-LEDS.png)
+
+
+![](images/RGB-P2.png)
+
 
 ## IR LED
 
-IR LEDs are side facing. They always point with lens towards PCB edge
+IR LEDs are side facing. They always point with lens towards PCB edge.
 
-![](images/IR-IR0.png)
+Green square on IR LED aligns to square on silk. All squares should be pointing in counter-clockwise direction
+
+![](images/IR1.png)
+
+## U1
+
+U1 IC marking dot aligns to dot on silk.
 
 
-Each IR LED has a green stripe on the back which aligns to the line on the silk
+![](images/U1.png)
 
-![](images/IR-IR0-orentation.png)
+## D1 
 
+It is only possible to install diode D1 one way on footprint. 
 
-### Completed PCB
+## Other parts
 
-![](images/complete.jpg)
+Parts S1, C1, C2 can be installed in either orientation.
+
+ 
