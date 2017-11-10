@@ -11,7 +11,7 @@
 
 The green dot on the RGB LED face aligns with the dot on the silk. All green dots on RGB LEDs point towards outside edge of PCB.
 
-![](images/RGB-LEDS.png)
+![](images/RGB-LEDS.jpg)
 
 
 ![](images/RGB-P2.png)
