@@ -3,7 +3,7 @@
 # Overview
 
 
-![](images/Overview.png)
+![](images/overview.png)
 
 # Orientation
 
