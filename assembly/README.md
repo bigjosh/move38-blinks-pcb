@@ -1,10 +1,5 @@
 ### Tile Assembly Notes
 
-# Overview
-
-
-![](images/overview.png)
-
 # Orientation
 
 ## 0606 RGB LEDs P0-P5
