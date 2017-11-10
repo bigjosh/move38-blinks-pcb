@@ -12,7 +12,7 @@ The green dot on the RGB LED face aligns with the dot on the silk. All green dot
 ![](images/RGB-P2.png)
 
 
-## IR LED
+## IR LED IR0-IR5
 
 IR LEDs are side facing. They always point with lens towards PCB edge.
 
