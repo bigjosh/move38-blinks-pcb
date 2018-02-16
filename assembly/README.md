@@ -1,5 +1,18 @@
 ### Tile Assembly Notes
 
+# Parts check
+
+## 0606 RGB LEDs P0-P5
+
+Visually confirm that the `19-237A/BHR6GHC-A01/2T` RGB LEDs look like one of these...
+
+![](images/19-237A-GOOD-silver.jpg)
+
+![](images/19-237A-GOOD-gold.jpg)
+
+NOTE: The appearance of this part does not match the photo on the datsheet!
+
+
 # Orientation
 
 ## 0606 RGB LEDs P0-P5
