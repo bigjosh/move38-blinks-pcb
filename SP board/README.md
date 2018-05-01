@@ -44,6 +44,6 @@ We can not use a simple level converter because we do not have the blinks positi
 
 To get around this, we use a trick. We enable the [pull-up resistor on the RX pin](https://electronics.stackexchange.com/questions/339709/does-enabling-the-alternate-rxd-function-on-an-avr-gpio-pin-disable-the-pull-up) on the tile, and then use a P-CHAN transistor to pull-down this pull-up anytime the USB TX goes low. 
 
-![](images/sp schematic.png)
+![](images/sp_sch.png)
 
  
