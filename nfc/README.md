@@ -51,3 +51,8 @@ The diode on the `T` keeps the capacitor charged while the SCL line briefly goes
  
 The two diode should be schotkey type and can be combined into a single package like BAT54S to save space.    
 
+### Prototype
+
+You can turn a existing blink into an NFC blink using an ST25DV eval board like this...
+
+[NFC Prototype Images](prototype)
