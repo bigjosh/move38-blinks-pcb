@@ -6,12 +6,12 @@ Some other batches with 328PBs on them have the SP port pins swapped, which does
 ![image](https://user-images.githubusercontent.com/5520281/163684815-d68ea1fa-eebe-4880-a6ed-42140a4304cb.png)
 
 ## Program the blink with the NFC firmware. 
-This will also doublecheck that you have a 328PB or else it will not program.
+This will also doublecheck that you have a 328PB or else it will not program. You can use any of the sample sketches to do the download, all that matters is that the right BIOS gets in. 
 
 ![image](https://user-images.githubusercontent.com/5520281/163684860-3fe8352c-899f-4ff9-a389-7cfc42d80d08.png)
 
 ## Assemble the front of the PCB
-Note the orientation of the IC.
+Note the orientation of the IC with the dot in the upper left corner.
 
 ![image](https://user-images.githubusercontent.com/5520281/163684660-a88f42ec-7e73-44f4-9477-de55b55e9f5d.png)
 
@@ -22,17 +22,17 @@ A couple of drops of Crazy Glue helps hold the wire in place after you wind.
 ![image](https://user-images.githubusercontent.com/5520281/163684678-61bbd5ce-4b8f-44c7-a307-afbde9047b14.png)
 
 ## Assemble back of board with coil
-Scraping the enamel off the wires makes soldering easier, but you can also solder directly and it will burn off. 
+Scraping the enamel off the wires makes soldering easier, but you can also solder directly and it should burn off. 
 
 ![image](https://user-images.githubusercontent.com/5520281/163685715-510aab77-423f-46ec-b3b8-3509918a16b2.png)
 
 ## Stick a 4 pin JST into the back of the blink
-Then put on the cover to hold it in place.
+Then put on the cover to hold it in place. You can also try a header, but I think it will be harder to hold in place. 
 
 ![image](https://user-images.githubusercontent.com/5520281/163684941-9fd7e04a-f1f9-46b8-9c98-ea2d126c8dcb.png)
 
 ## Solder the PCB to the pins of the JST that are stocking out on the front side of the blink
-Make sure the solder wets both the NFC board pads and the SP connector pads.
+Make sure the solder wets both the NFC board pads and the SP connector pads on the blink PCB.
 
 ![image](https://user-images.githubusercontent.com/5520281/163684989-2774a28a-a67b-478e-bc34-e09fb7f84403.png)
 
