@@ -34,7 +34,7 @@ Then put on the cover to hold it in place. You can also try a header, but I thin
 ## Solder the PCB to the pins of the JST that are stocking out on the front side of the blink
 Make sure the solder wets both the NFC board pads and the SP connector pads on the blink PCB.
 
-![image](https://user-images.githubusercontent.com/5520281/163684989-2774a28a-a67b-478e-bc34-e09fb7f84403.png)
+![image](https://user-images.githubusercontent.com/5520281/163688032-2d28ea88-c83b-4088-9268-0a5535313d75.png)
 
 This is the tricky part. This is a setup that worked for me.
 
@@ -70,7 +70,7 @@ We will want to add the ability to do this to the sample app I made or the real 
   // Command code 0xa1="Write Configuration", request paramaters are the register number &  the new value
 
   /* Set GPO config register */
-  iso15693Tag.customCommand(requestFlags: RequestFlag(rawValue: 0x02), customCommandCode: 0xa1, customRequestParameters: Data(_: [0x00,0x80]))  { (response: Data, error: Error?) in
+  iso15693Tag.customCommand(requestFlags: RequestFlag(rawValue: 0x02), customCommandCode: 0xa1, customRequestParameters: Data(_: [0x00,0x94]))  { (response: Data, error: Error?) in
       print("in set GPO reg send callback")
       guard error == nil else {
           session.invalidate(errorMessage: "Could not send GPO set register command:"+error!.localizedDescription)
